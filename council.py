@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 load_dotenv()
 
 # ===== CONFIGURATION =====
-SESSION_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "15000"))
-MAX_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "4000"))
+SESSION_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "20000"))
+MAX_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "10000"))
 
 # ===== LAZY SUPABASE =====
 _supabase_client = None
@@ -103,60 +103,77 @@ THEMES = {
 # ===== DIRECT API CALLS =====
 
 def call_azure_ai_foundry(deployment_name: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Call Azure AI Foundry API directly."""
-    try:
-        api_key = os.getenv("AZURE_API_KEY")
-        api_base = os.getenv("AZURE_API_BASE", "").rstrip("/")
-        
-        if not api_key or not api_base:
-            return "⚠️ Azure API not configured", 0
-        
-        # Azure AI Foundry chat completions endpoint
-        url = f"{api_base}/models/chat/completions?api-version=2024-05-01-preview"
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        payload = {
-            "model": deployment_name,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.7
-        }
-        
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
-        
-        if response.status_code == 200:
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", max_tokens)
-            return content, tokens
-        else:
-            error = response.json().get("error", {}).get("message", response.text)
-            return f"⚠️ Azure Error ({response.status_code}): {error}", 0
+    """
+    Call Azure AI Foundry API directly.
+    Tries multiple endpoint formats for compatibility.
+    """
+    api_key = os.getenv("AZURE_API_KEY")
+    api_base = os.getenv("AZURE_API_BASE", "").rstrip("/")
+    
+    if not api_key or not api_base:
+        return "⚠️ Azure API not configured", 0
+    
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": api_key,  # Azure uses api-key header
+        "Authorization": f"Bearer {api_key}"  # Also try Bearer token
+    }
+    
+    payload = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+    
+    # Try different endpoint formats
+    endpoints_to_try = [
+        # Format 1: Model in URL path (Azure AI Foundry standard)
+        (f"{api_base}/openai/deployments/{deployment_name}/chat/completions?api-version=2024-10-21", 
+         {**payload}),
+        # Format 2: Model in body (Azure AI Inference)
+        (f"{api_base}/models/chat/completions?api-version=2024-05-01-preview", 
+         {**payload, "model": deployment_name}),
+        # Format 3: Direct model endpoint
+        (f"{api_base}/chat/completions?api-version=2024-10-21", 
+         {**payload, "model": deployment_name}),
+    ]
+    
+    last_error = ""
+    for url, body in endpoints_to_try:
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=120)
             
-    except Exception as e:
-        return f"⚠️ Azure Exception: {str(e)}", 0
+            if response.status_code == 200:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", max_tokens)
+                return content, tokens
+            else:
+                last_error = f"{response.status_code}: {response.text[:200]}"
+        except Exception as e:
+            last_error = str(e)
+    
+    return f"⚠️ Azure Error: {last_error}", 0
 
 def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
     """Call Google Gemini API directly."""
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    
+    # Validate API key format (should start with AIza)
+    if not api_key or not api_key.startswith("AIza"):
+        return "⚠️ Gemini API key invalid (should start with AIza)", 0
+    
     try:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return "⚠️ Gemini API key not configured", 0
-        
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}"
         
         # Convert messages to Gemini format
-        parts = []
+        contents = []
         for msg in messages:
             role = "user" if msg["role"] in ["user", "system"] else "model"
-            parts.append({"role": role, "parts": [{"text": msg["content"]}]})
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
         
         payload = {
-            "contents": parts,
+            "contents": contents,
             "generationConfig": {
                 "maxOutputTokens": max_tokens,
                 "temperature": 0.7
@@ -170,8 +187,7 @@ def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]
             content = data["candidates"][0]["content"]["parts"][0]["text"]
             return content, max_tokens
         else:
-            error = response.json().get("error", {}).get("message", response.text)
-            return f"⚠️ Gemini Error: {error}", 0
+            return f"⚠️ Gemini Error: {response.status_code}", 0
             
     except Exception as e:
         return f"⚠️ Gemini Exception: {str(e)}", 0
@@ -179,15 +195,14 @@ def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]
 def get_deployment_name(model_key: str) -> Optional[str]:
     """Extract deployment name from MODEL_XXX env var."""
     value = os.getenv(model_key, "")
-    # Remove azure_ai/ or azure/ prefix if present
-    if value.startswith("azure_ai/"):
-        return value[9:]
-    elif value.startswith("azure/"):
-        return value[6:]
+    # Remove any prefix
+    for prefix in ["azure_ai/", "azure/", "gemini/"]:
+        if value.startswith(prefix):
+            value = value[len(prefix):]
     return value if value else None
 
 def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Universal LLM caller with fallbacks."""
+    """Universal LLM caller - tries Azure first, then Gemini fallback."""
     agent = AGENTS.get(agent_key)
     if not agent:
         return "⚠️ Unknown agent", 0
@@ -195,8 +210,8 @@ def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tu
     model_key = agent["model_key"]
     deployment = get_deployment_name(model_key)
     
-    # Try Gemini for Innovator or if no Azure model configured
-    if model_key == "MODEL_GEMINI" or not deployment:
+    # For Innovator, prefer Gemini
+    if model_key == "MODEL_GEMINI":
         result, tokens = call_gemini(messages, max_tokens)
         if not result.startswith("⚠️"):
             return result, tokens
@@ -206,17 +221,21 @@ def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tu
         result, tokens = call_azure_ai_foundry(deployment, messages, max_tokens)
         if not result.startswith("⚠️"):
             return result, tokens
-        
-        # If primary fails, try fallback models
-        fallbacks = ["claude-sonnet-4-5", "claude-opus-4-5", "gpt-5.2-chat"]
-        for fb in fallbacks:
-            if fb != deployment:
-                result, tokens = call_azure_ai_foundry(fb, messages, max_tokens)
-                if not result.startswith("⚠️"):
-                    return result, tokens
+    
+    # Try other Azure models as fallback
+    fallback_models = ["claude-sonnet-4-5", "claude-opus-4-5", "gpt-5.2-chat", "grok-4-fast-reasoning"]
+    for fb in fallback_models:
+        if fb != deployment:
+            result, tokens = call_azure_ai_foundry(fb, messages, max_tokens)
+            if not result.startswith("⚠️"):
+                return result, tokens
     
     # Last resort: Gemini
-    return call_gemini(messages, max_tokens)
+    result, tokens = call_gemini(messages, max_tokens)
+    if not result.startswith("⚠️"):
+        return result, tokens
+    
+    return f"⚠️ All models failed. Check API keys and endpoints.", 0
 
 # ===== TOOLS =====
 def web_search(query: str) -> str:
