@@ -58,4 +58,3 @@ def what(file, h: Optional[bytes] = None) -> Optional[str]:
 
 # Provide the small convenience API the stdlib imghdr exposes
 tests = None
-```
