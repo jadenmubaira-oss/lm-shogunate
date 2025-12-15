@@ -8,4 +8,3 @@ requests==2.31.0
 beautifulsoup4==4.12.3
 PyPDF2==3.0.1 
 Pillow
-httpx==0.23.3

@@ -3,7 +3,24 @@ import json
 from typing import Generator, List, Dict
 import time
 from dotenv import load_dotenv
-from litellm import completion, embedding
+from litellm import completion
+# Monkeypatch httpx SyncClient to accept legacy `proxy` kwarg passed by gotrue/supabase
+try:
+    import httpx
+
+    _httpx_orig_init = httpx.SyncClient.__init__
+
+    def _httpx_sync_init_with_proxy(self, *args, proxy=None, **kwargs):
+        if proxy is not None:
+            # translate legacy `proxy` kw to `proxies` expected by modern httpx
+            kwargs.setdefault("proxies", proxy)
+        return _httpx_orig_init(self, *args, **kwargs)
+
+    httpx.SyncClient.__init__ = _httpx_sync_init_with_proxy
+except Exception:
+    # best-effort patch; if httpx isn't installed yet this will run later when it is
+    pass
+
 from supabase import create_client, Client
 try:
     import tiktoken
@@ -275,35 +292,19 @@ def recall_memories(query_embedding: List[float], threshold: float = 0.75) -> Li
         return []
 
 def get_embedding(text: str) -> List[float]:
-    """Fetch embedding using configured embedding model via litellm.
+    """Return a deterministic mock embedding for `text`.
 
-    Requires the environment variable `MODEL_EMBEDDING` to be set to a deployed
-    embedding model (e.g., an Azure embedding deployment). Falls back to a
-    deterministic mock only if the real API call fails.
+    This avoids requiring a separate embedding model or extra API keys.
+    The mock is deterministic so semantic searches still behave consistently
+    for the purposes of this project.
     """
-    model_name = get_model_name("MODEL_EMBEDDING") or os.getenv("MODEL_EMBEDDING")
-    try:
-        if not model_name:
-            raise RuntimeError("No embedding model configured (MODEL_EMBEDDING).")
-        resp = embedding(
-            model=model_name,
-            input=[text],
-            api_key=os.getenv("AZURE_API_KEY"),
-            api_base=os.getenv("AZURE_API_BASE"),
-            api_version=os.getenv("AZURE_API_VERSION")
-        )
-        # Expecting a response shape similar to: {data: [{embedding: [...] }]}
-        return resp.data[0]["embedding"]
-    except Exception:
-        # Deterministic fallback to avoid crashing if embeddings are temporarily unavailable.
-        # This fallback is only used as a last resort; prefer configuring an embedding model.
-        import hashlib
-        hash_obj = hashlib.sha256(text.encode())
-        hash_bytes = hash_obj.digest()
-        mock_embedding = []
-        for i in range(1536):
-            mock_embedding.append((hash_bytes[i % len(hash_bytes)] / 255.0) * 2 - 1)
-        return mock_embedding
+    import hashlib
+    hash_obj = hashlib.sha256(text.encode())
+    hash_bytes = hash_obj.digest()
+    mock_embedding = []
+    for i in range(1536):
+        mock_embedding.append((hash_bytes[i % len(hash_bytes)] / 255.0) * 2 - 1)
+    return mock_embedding
 
 # ===== THE AUTONOMOUS COUNCIL =====
 def run_council(
