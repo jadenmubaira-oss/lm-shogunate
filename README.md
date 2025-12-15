@@ -46,9 +46,9 @@ Files in this repo
 - `app.py` — Streamlit front-end and theme injection.
 - `council.py` — Orchestration of personas and database functions.
 - `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
- - `app.py` — Streamlit front-end and theme injection.
- - `council.py` — Orchestration of personas and database functions. NOTE: Opus (your Azure Opus deployment) is configured as the primary Architect and primary Coder for the highest-quality planning and code generation.
- - `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
+- `app.py` — Streamlit front-end and theme injection.
+- `council.py` — Orchestration of personas and database functions. NOTE: Opus (your Azure Opus deployment) is configured as the primary Architect and primary Coder for the highest-quality planning and code generation.
+- `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
 
 Quickstart (local)
 ------------------
@@ -79,7 +79,7 @@ MODEL_OPUS="azure/claude-opus-4-5"
 MODEL_GPT="azure/gpt-5.2-chat"
 MODEL_GROK="azure/grok-4-fast-reasoning"
 MODEL_GEMINI="gemini/gemini-2.0-flash-exp"
-MODEL_EMBEDDING="azure/text-embedding-ada-002"
+```
 ```
 
 3. Run the app locally:
@@ -119,19 +119,190 @@ streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headl
    - `MODEL_GPT`=azure/gpt-5.2-chat
    - `MODEL_GROK`=azure/grok-4-fast-reasoning
    - `MODEL_GEMINI`=gemini/gemini-2.0-flash-exp
-   - `MODEL_EMBEDDING`=your-embedding-deployment-name (e.g., azure/text-embedding-ada-002)
 
-How to ensure the "real thing" works (no mocks)
------------------------------------------------
-1. Deploy an embedding model in Azure Foundry and set `MODEL_EMBEDDING` to its deployment name.
-2. Confirm `AZURE_API_KEY`, `AZURE_API_BASE` and `AZURE_API_VERSION` are set in Render.
-3. The app calls `litellm.embedding` at runtime to compute embeddings — once configured the system uses real embeddings and real model calls (no mocks required).
+Notes on embeddings (easiest setup)
+----------------------------------
+- The project previously required a deployed embedding model. For the easiest setup, the app now uses a deterministic mock embedding function that does NOT require any embedding model or extra API keys. This makes deployment and initial testing trivial.
+- If you later want higher-quality semantic search using real embeddings, you can deploy an embedding model in Azure Foundry and replace the `get_embedding` function to call it — I can help with that migration.
+
+How the Supabase memory works (kept for persistence)
+---------------------------------------------------
+1. The app stores every message in the `messages` table and saves successful solutions in `memories` with an embedding vector.
+2. The `match_memories` function (run in SQL on Supabase) performs a nearest-neighbor search against stored embeddings and returns the top relevant memories to the council when you submit a request.
+3. Because `get_embedding` uses a deterministic mock, the memory system will behave consistently out of the box without extra configuration. If you later enable real embeddings, the memory retrieval will improve.
+
+Easiest setup summary (minimal required env vars)
+------------------------------------------------
+Set these in Render (only):
+- `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION` — for Azure Foundry model calls
+- `GEMINI_API_KEY` — for Gemini wildcard role
+- `SUPABASE_URL`, `SUPABASE_KEY` — for memory persistence
+- `APP_PASSWORD` — passcode to access the UI
+- `MODEL_OPUS`, `MODEL_GPT`, `MODEL_GROK`, `MODEL_GEMINI` — map to your deployed model names
+
+With these set, you can deploy to Render and the app will run immediately using deterministic mock embeddings for memory.
 
 5. Deploy and open your Render URL on mobile or desktop.
 
 Supabase — memory (you said you already ran schema)
 -------------------------------------------------
-- Ensure you enabled the `vector` extension and created `chat_sessions`, `messages`, `memories`, and the `match_memories` function (SQL provided in project notes).
+Ensure you enabled the `vector` extension and created `chat_sessions`, `messages`, `memories`, and the `match_memories` function. If you haven't already, run the SQL below in the Supabase SQL editor.
+
+Run this SQL in Supabase SQL editor (creates extensions, tables, index, and `match_memories`):
+
+```sql
+-- 1) Ensure required extensions
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- 2) Sessions table
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  metadata jsonb
+);
+
+-- 3) Messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  role text NOT NULL,
+  content text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- 4) Memories table (embedding vector uses 1536 dims; adjust if you later use a different embedding size)
+CREATE TABLE IF NOT EXISTS memories (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid REFERENCES chat_sessions(id) ON DELETE SET NULL,
+  title text,
+  content text,
+  embedding vector(1536),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- 5) Index for fast ANN search (ivfflat). Tune lists for your dataset size.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'memories' AND indexname = 'memories_embedding_ivfflat_idx'
+  ) THEN
+    EXECUTE 'CREATE INDEX memories_embedding_ivfflat_idx ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)';
+  END IF;
+END
+$$;
+
+-- 6) Nearest-neighbor helper: returns rows ordered by nearest embedding and a simple score
+CREATE OR REPLACE FUNCTION match_memories(query vector(1536), max_results integer DEFAULT 5)
+RETURNS TABLE (
+  id uuid,
+  session_id uuid,
+  title text,
+  content text,
+  score double precision
+) AS $$
+  SELECT
+    m.id,
+    m.session_id,
+    m.title,
+    m.content,
+    1.0 / (1.0 + (m.embedding <-> query)) AS score
+  FROM memories m
+  WHERE m.embedding IS NOT NULL
+  ORDER BY m.embedding <-> query
+  LIMIT max_results;
+$$ LANGUAGE SQL STABLE;
+```
+
+Notes:
+- The SQL above uses `vector(1536)` because the app's mock embedding uses 1536 dims. If you later enable real embeddings with a different dimensionality, update the `vector(...)` size accordingly.
+- If your Supabase plan or Postgres build does not support `ivfflat`, you can omit the ivfflat index line; queries will still work but may be slower for large datasets.
+
+Quick smoke test (run in SQL editor):
+
+1) Create a session and insert a sample memory (ensure your vector literal matches the declared dimension):
+
+```sql
+INSERT INTO chat_sessions (id) VALUES (gen_random_uuid()) RETURNING id;
+-- Replace <SESSION_ID> in the next statement with the returned id and provide a proper 1536-length vector
+INSERT INTO memories (session_id, title, content, embedding)
+VALUES ('<SESSION_ID>', 'Test memory', 'This is a test memory content',
+        ARRAY[0.0 /* repeat 1536 floats as needed */]::vector);
+```
+
+2) Query nearest neighbors:
+
+```sql
+SELECT * FROM match_memories(ARRAY[0.0 /* 1536 floats */]::vector, 5);
+```
+
+If you want me to verify these steps remotely, provide a temporary read-only `SUPABASE_KEY` (or paste the SQL editor output) and I will run the checks and report back.
+
+Supabase gotchas & fixes
+-------------------------
+Real Supabase projects sometimes differ from the example schema (existing installs or earlier migrations). Here are quick checks and fixes you can run if you hit errors:
+
+1) Inspect the `memories` table shape:
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'memories';
+```
+
+2) Common issues and fixes:
+- Missing `session_id`, `title`, or `content` in `memories`: add them (non-destructive):
+
+```sql
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS session_id uuid;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS content text;
+```
+
+- `chat_sessions.title` is NOT NULL: create sessions with a title or relax the constraint. Preferred (create with title):
+
+```sql
+INSERT INTO chat_sessions (title, metadata) VALUES ('Smoke test session', '{}'::jsonb) RETURNING id;
+```
+
+If you prefer to allow empty titles:
+
+```sql
+ALTER TABLE chat_sessions ALTER COLUMN title DROP NOT NULL;
+-- or set a default
+ALTER TABLE chat_sessions ALTER COLUMN title SET DEFAULT 'Untitled session';
+```
+
+- `memories.id` type mismatch (you may see `bigint` instead of `uuid`): adapt the function return types or migrate the column. Quick, non-destructive approach — keep `id bigint` in the function:
+
+```sql
+CREATE OR REPLACE FUNCTION match_memories(query vector(1536), max_results integer DEFAULT 5)
+RETURNS TABLE (id bigint, session_id uuid, title text, content text, score double precision) AS $$
+  SELECT m.id, m.session_id, m.title, m.content, 1.0 / (1.0 + (m.embedding <-> query)) AS score
+  FROM memories m
+  WHERE m.embedding IS NOT NULL
+  ORDER BY m.embedding <-> query
+  LIMIT max_results;
+$$ LANGUAGE SQL STABLE;
+```
+
+3) Smoke-test insert (creates a titled session and a 1536-d zero vector memory):
+
+```sql
+WITH s AS (
+  INSERT INTO chat_sessions (title, metadata) VALUES ('Smoke test session', '{}'::jsonb) RETURNING id
+)
+INSERT INTO memories (session_id, title, content, embedding, created_at)
+SELECT s.id, 'Smoke test memory', 'Inserted by smoke test', array_fill(0.0::double precision, ARRAY[1536])::vector, now() FROM s;
+```
+
+4) Verify retrieval:
+
+```sql
+SELECT * FROM match_memories(array_fill(0.0::double precision, ARRAY[1536])::vector, 5);
+```
+
+If anything errors, paste the exact error text here and I'll provide the precise fix.
 
 How the council works (agent flow)
 ---------------------------------
@@ -164,7 +335,7 @@ Token budgeting & cost controls
 Environment variable reference (add these to Render):
 - `SESSION_TOKEN_BUDGET` — integer, total token budget per session (default 5000)
 - `MAX_TOKENS_PER_CALL` — integer, per-call hard cap (default 3000)
-- `MODEL_EMBEDDING` — embedding deployment name (required for real embeddings)
+ - `MODEL_EMBEDDING` — embedding deployment name (optional). Only required if you enable real embeddings; the app defaults to a deterministic mock embedding so no embedding model is required for initial deployment.
 
 Cost & budgeting
 -----------------
