@@ -1,82 +1,172 @@
 """
-LM SHOGUNATE: The Pinnacle Multi-Agent AI Council
-==================================================
-Uses Azure AI Foundry Anthropic Messages API + Gemini
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    LM SHOGUNATE: THE PINNACLE AI COUNCIL                     ║
+║══════════════════════════════════════════════════════════════════════════════║
+║  The World's Most Advanced Multi-Agent AI System                             ║
+║  6 AI Lords • Unified Intelligence • Superior to All Existing Systems       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ARCHITECTURE:
+├── Emperor (Claude Opus 4.5) - Supreme Oracle, Final Arbiter
+├── Strategist (Claude Sonnet 4.5) - Architecture & Planning  
+├── Executor (GPT-5.2) - Code Implementation
+├── Inquisitor (Grok 4) - Critique & Quality Assurance
+├── Sage (Kimi K2) - Deep Reasoning & Logic
+└── Scribe (Claude Haiku 4.5) - Documentation & Summaries
+
+API ROUTING:
+- Claude models → Anthropic Messages API
+- GPT/Grok models → OpenAI Chat Completions API
 """
 
 import os
 import hashlib
 import time
-from typing import Generator, List, Dict, Optional, Tuple
+import re
+from datetime import datetime, timezone
+from typing import Generator, List, Dict, Optional, Tuple, Any
 from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 
 load_dotenv()
 
-# ===== CONFIGURATION =====
-SESSION_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "20000"))
-MAX_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "10000"))
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ===== LAZY SUPABASE =====
-_supabase_client = None
+SESSION_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "50000"))
+MAX_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "16000"))
+AZURE_API_KEY = os.getenv("AZURE_API_KEY", "")
 
-def get_supabase():
-    global _supabase_client
-    if _supabase_client is None:
-        try:
-            from supabase import create_client
-            url = os.getenv("SUPABASE_URL")
-            key = os.getenv("SUPABASE_KEY")
-            if url and key:
-                _supabase_client = create_client(url, key)
-        except:
-            pass
-    return _supabase_client
+# Azure endpoints from your Foundry screenshots
+ANTHROPIC_ENDPOINT = "https://polyprophet-resource.openai.azure.com/anthropic/v1/messages"
+OPENAI_ENDPOINT = "https://polyprophet-resource.cognitiveservices.azure.com/openai/deployments"
 
-# ===== THE COUNCIL HIERARCHY =====
+# Model classification
+ANTHROPIC_MODELS = {"claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"}
+OPENAI_MODELS = {"gpt-5.2-chat", "grok-4-fast-reasoning", "Kimi-K2-Thinking"}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# THE COUNCIL HIERARCHY
+# ═══════════════════════════════════════════════════════════════════════════════
+
 AGENTS = {
     "Emperor": {
         "name": "天皇 (The Emperor)",
-        "model_key": "MODEL_OPUS",
+        "model": "claude-opus-4-5",
         "avatar": "👑",
         "tier": 1,
-        "style": """You are THE EMPEROR, the Supreme Oracle. SYNTHESIZE the best elements and DELIVER the FINAL answer."""
+        "role": "Supreme Oracle - Makes FINAL decisions",
+        "style": """You are THE EMPEROR, Supreme Oracle of the AI Council.
+
+You have received the complete deliberations of your council:
+- The Strategist's analysis and plan
+- The Executor's implementation
+- The Inquisitor's critique
+- The Sage's reasoning
+
+YOUR SUPREME DUTY:
+1. SYNTHESIZE the absolute best elements from all perspectives
+2. RESOLVE any conflicts or disagreements
+3. ENHANCE with your superior wisdom
+4. DELIVER the FINAL, authoritative answer
+
+Your word is LAW. Be decisive. Be comprehensive. Be perfect."""
     },
+    
     "Strategist": {
         "name": "軍師 (Strategist)",
-        "model_key": "MODEL_SONNET",
+        "model": "claude-sonnet-4-5",
         "avatar": "🎯",
         "tier": 2,
-        "style": """You are THE STRATEGIST. ANALYZE the problem and CREATE a battle plan."""
+        "role": "Master of Planning & Architecture",
+        "style": """You are THE STRATEGIST, master of planning and architecture.
+
+YOUR DUTIES:
+1. DEEPLY ANALYZE the user's request - understand every nuance
+2. BREAK DOWN complex problems into clear components
+3. DESIGN the optimal approach/architecture
+4. IDENTIFY challenges, edge cases, and constraints
+5. CREATE a comprehensive battle plan
+
+If this is a simple question, provide a direct, helpful answer.
+If this requires implementation, provide a clear strategic plan.
+
+Be thorough. Be precise. Think several steps ahead."""
     },
+    
     "Executor": {
         "name": "刀匠 (Executor)",
-        "model_key": "MODEL_GPT",
+        "model": "gpt-5.2-chat",
         "avatar": "⚔️",
         "tier": 2,
-        "style": """You are THE EXECUTOR. Write COMPLETE, PRODUCTION-READY code in markdown blocks."""
+        "role": "Master Craftsman of Code",
+        "style": """You are THE EXECUTOR, master craftsman of implementation.
+
+YOUR DUTIES:
+1. IMPLEMENT the Strategist's plan with perfection
+2. Write COMPLETE, PRODUCTION-READY solutions
+3. Include comprehensive error handling
+4. Add clear documentation and comments
+5. Handle ALL edge cases
+
+For code: Use markdown code blocks with language specification.
+For answers: Be comprehensive and actionable.
+
+Your work must be flawless. No shortcuts. No placeholders."""
     },
+    
     "Inquisitor": {
         "name": "審問官 (Inquisitor)",
-        "model_key": "MODEL_GROK",
+        "model": "grok-4-fast-reasoning",
         "avatar": "🔍",
         "tier": 2,
-        "style": """You are THE INQUISITOR. Find EVERY flaw. End with "VERDICT: APPROVED" or "VERDICT: REJECTED"."""
+        "role": "Ruthless Quality Examiner",
+        "style": """You are THE INQUISITOR, ruthless examiner of all work.
+
+YOUR DUTIES:
+1. SCRUTINIZE every aspect with zero mercy
+2. FIND bugs, flaws, inefficiencies, security issues
+3. VERIFY logic, edge cases, and error handling
+4. IDENTIFY what's missing or could be better
+5. BE SPECIFIC about issues and fixes
+
+You MUST end your response with exactly one of:
+- "VERDICT: APPROVED ✅" (if work is production-ready)
+- "VERDICT: NEEDS REVISION ⚠️" (if minor issues exist)
+- "VERDICT: REJECTED ❌" (if major issues exist)
+
+Be ruthless. Quality depends on your vigilance."""
     },
+    
     "Sage": {
         "name": "賢者 (Sage)",
-        "model_key": "MODEL_KIMI",
+        "model": "Kimi-K2-Thinking",
         "avatar": "📿",
         "tier": 2,
-        "style": """You are THE SAGE. Provide deep logical reasoning."""
+        "role": "Master of Deep Reasoning",
+        "style": """You are THE SAGE, master of deep reasoning and logic.
+
+YOUR DUTIES:
+1. ANALYZE the logical correctness of all solutions
+2. VERIFY mathematical accuracy where applicable
+3. REASON through complex edge cases
+4. IDENTIFY hidden assumptions and potential failures
+5. PROVIDE alternative perspectives
+
+Think deeply. Question everything. Your wisdom prevents errors."""
     },
-    "Innovator": {
-        "name": "発明家 (Innovator)",
-        "model_key": "MODEL_GEMINI",
-        "avatar": "💡",
-        "tier": 2,
-        "style": """You are THE INNOVATOR. Propose UNCONVENTIONAL alternatives."""
+    
+    "Scribe": {
+        "name": "書記 (Scribe)",
+        "model": "claude-haiku-4-5",
+        "avatar": "📜",
+        "tier": 3,
+        "role": "Master of Summaries",
+        "style": """You are THE SCRIBE, master of clear communication.
+
+YOUR DUTY: Summarize complex information concisely and clearly."""
     },
 }
 
@@ -98,187 +188,237 @@ THEMES = {
     }
 }
 
-# ===== AZURE ANTHROPIC API (from your screenshots) =====
+# ═══════════════════════════════════════════════════════════════════════════════
+# AZURE API CALLERS
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def call_azure_anthropic(model_name: str, system_prompt: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """
-    Call Azure AI Foundry Anthropic API.
-    Endpoint: https://polyprophet-resource.openai.azure.com/anthropic/v1/messages
-    Uses Anthropic Messages API format.
-    """
-    api_key = os.getenv("AZURE_API_KEY", "")
-    
-    if not api_key:
-        return "⚠️ Azure API key not set", 0
-    
-    # The endpoint from your Azure screenshots
-    url = "https://polyprophet-resource.openai.azure.com/anthropic/v1/messages"
+def call_anthropic_api(model: str, system_prompt: str, messages: List[Dict], max_tokens: int) -> Tuple[str, int]:
+    """Call Azure Anthropic Messages API for Claude models."""
+    if not AZURE_API_KEY:
+        return "⚠️ Azure API key not configured", 0
     
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {AZURE_API_KEY}",
         "anthropic-version": "2023-06-01"
     }
     
-    # Convert messages to Anthropic format (filter out system, keep user/assistant)
-    anthropic_messages = []
-    for msg in messages:
-        if msg["role"] in ["user", "assistant"]:
-            anthropic_messages.append({
-                "role": msg["role"],
-                "content": msg["content"]
-            })
+    # Filter to user/assistant messages only
+    api_messages = [{"role": m["role"], "content": m["content"]} 
+                    for m in messages if m["role"] in ["user", "assistant"]]
     
-    # Ensure we have at least one message
-    if not anthropic_messages:
-        anthropic_messages = [{"role": "user", "content": "Hello"}]
+    if not api_messages:
+        api_messages = [{"role": "user", "content": "Hello"}]
     
     payload = {
-        "model": model_name,
+        "model": model,
         "max_tokens": max_tokens,
         "temperature": 0.7,
         "system": system_prompt,
-        "messages": anthropic_messages
+        "messages": api_messages
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.post(ANTHROPIC_ENDPOINT, headers=headers, json=payload, timeout=180)
         
         if response.status_code == 200:
             data = response.json()
-            # Anthropic format: {"content": [{"type": "text", "text": "..."}]}
             content = data.get("content", [{}])[0].get("text", "")
-            tokens = data.get("usage", {}).get("output_tokens", max_tokens)
+            tokens = data.get("usage", {}).get("output_tokens", 0) + data.get("usage", {}).get("input_tokens", 0)
             return content, tokens
         else:
-            return f"⚠️ Azure {response.status_code}: {response.text[:150]}", 0
-            
+            return f"⚠️ Anthropic API Error {response.status_code}: {response.text[:200]}", 0
     except Exception as e:
-        return f"⚠️ Azure Exception: {str(e)}", 0
+        return f"⚠️ Anthropic Exception: {str(e)}", 0
 
-def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Call Google Gemini API."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    
-    if not api_key:
-        return "⚠️ Gemini: API key not set", 0
-    if not api_key.startswith("AIza"):
-        return f"⚠️ Gemini: Invalid key format", 0
-    
-    for model_name in ["gemini-1.5-flash", "gemini-1.5-pro"]:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={api_key}"
-            
-            contents = []
-            for msg in messages:
-                role = "user" if msg["role"] in ["user", "system"] else "model"
-                contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-            
-            payload = {
-                "contents": contents,
-                "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}
-            }
-            
-            response = requests.post(url, json=payload, timeout=120)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if "candidates" in data and len(data["candidates"]) > 0:
-                    return data["candidates"][0]["content"]["parts"][0]["text"], max_tokens
-        except:
-            continue
-    
-    return "⚠️ Gemini: All models failed", 0
 
-def get_deployment_name(model_key: str) -> Optional[str]:
-    value = os.getenv(model_key, "")
-    for prefix in ["azure_ai/", "azure/", "gemini/"]:
-        if value.startswith(prefix):
-            value = value[len(prefix):]
-    return value if value else None
+def call_openai_api(model: str, system_prompt: str, messages: List[Dict], max_tokens: int) -> Tuple[str, int]:
+    """Call Azure OpenAI API for GPT/Grok models."""
+    if not AZURE_API_KEY:
+        return "⚠️ Azure API key not configured", 0
+    
+    url = f"{OPENAI_ENDPOINT}/{model}/chat/completions?api-version=2024-10-21"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {AZURE_API_KEY}",
+        "api-key": AZURE_API_KEY
+    }
+    
+    # Build messages with system prompt
+    api_messages = [{"role": "system", "content": system_prompt}]
+    api_messages.extend([{"role": m["role"], "content": m["content"]} 
+                         for m in messages if m["role"] in ["user", "assistant"]])
+    
+    payload = {
+        "messages": api_messages,
+        "max_completion_tokens": max_tokens,
+        "temperature": 0.7
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=180)
+        
+        if response.status_code == 200:
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            tokens = data.get("usage", {}).get("total_tokens", 0)
+            return content, tokens
+        else:
+            return f"⚠️ OpenAI API Error {response.status_code}: {response.text[:200]}", 0
+    except Exception as e:
+        return f"⚠️ OpenAI Exception: {str(e)}", 0
 
-def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Universal LLM caller."""
+
+def call_model(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 4000) -> Tuple[str, int]:
+    """Route to correct API based on model type."""
+    if model in ANTHROPIC_MODELS:
+        return call_anthropic_api(model, system_prompt, messages, max_tokens)
+    else:
+        return call_openai_api(model, system_prompt, messages, max_tokens)
+
+
+def call_agent(agent_key: str, messages: List[Dict], max_tokens: int = 4000) -> Tuple[str, int]:
+    """Call a specific agent with proper routing."""
     agent = AGENTS.get(agent_key)
     if not agent:
         return "⚠️ Unknown agent", 0
     
-    model_key = agent["model_key"]
-    deployment = get_deployment_name(model_key)
-    system_prompt = agent.get("style", "You are a helpful assistant.")
-    
-    # Extract system from messages if present
-    user_messages = []
-    for msg in messages:
-        if msg["role"] == "system":
-            system_prompt = msg["content"]
-        else:
-            user_messages.append(msg)
-    
-    # For Gemini agent, try Gemini first
-    if model_key == "MODEL_GEMINI":
-        result, tokens = call_gemini(messages, max_tokens)
-        if not result.startswith("⚠️"):
-            return result, tokens
-    
-    # Try Azure Anthropic API with configured model
-    if deployment:
-        result, tokens = call_azure_anthropic(deployment, system_prompt, user_messages, max_tokens)
-        if not result.startswith("⚠️"):
-            return result, tokens
-    
-    # Try fallback models on Azure
-    fallback_models = ["claude-sonnet-4-5", "claude-opus-4-5", "gpt-5.2-chat"]
-    for fb in fallback_models:
-        if fb != deployment:
-            result, tokens = call_azure_anthropic(fb, system_prompt, user_messages, max_tokens)
-            if not result.startswith("⚠️"):
-                return result, tokens
-    
-    # Last resort: Gemini
-    result, tokens = call_gemini(messages, max_tokens)
-    if not result.startswith("⚠️"):
-        return result, tokens
-    
-    return "⚠️ All models failed. Check API keys.", 0
+    return call_model(agent["model"], agent["style"], messages, max_tokens)
 
-# ===== TOOLS =====
-def web_search(query: str) -> str:
+# ═══════════════════════════════════════════════════════════════════════════════
+# REAL-TIME TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_current_datetime() -> str:
+    """Get current date and time in multiple formats."""
+    now = datetime.now()
+    utc_now = datetime.now(timezone.utc)
+    return f"""Current Date & Time:
+- Local: {now.strftime('%A, %B %d, %Y at %I:%M:%S %p')}
+- UTC: {utc_now.strftime('%Y-%m-%d %H:%M:%S UTC')}
+- Unix Timestamp: {int(time.time())}
+- ISO 8601: {now.isoformat()}"""
+
+
+def web_search(query: str, num_results: int = 8) -> str:
+    """Search the web using DuckDuckGo."""
     try:
-        response = requests.get(f"https://html.duckduckgo.com/html/?q={query}", 
-                               headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        url = f"https://html.duckduckgo.com/html/?q={query}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        results = [r.get_text()[:80] for r in soup.find_all('a', class_='result__a')[:5]]
-        return "\n".join(f"{i+1}. {r}" for i, r in enumerate(results)) if results else "No results"
-    except:
-        return "Search failed"
+        
+        results = []
+        for i, result in enumerate(soup.find_all('a', class_='result__a')[:num_results]):
+            title = result.get_text().strip()
+            href = result.get('href', '')
+            results.append(f"{i+1}. {title}")
+        
+        return "\n".join(results) if results else "No search results found."
+    except Exception as e:
+        return f"Search failed: {str(e)}"
 
-# ===== DATABASE =====
+
+def read_url(url: str, max_chars: int = 8000) -> str:
+    """Read and extract content from a URL."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove unwanted elements
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe']):
+            tag.decompose()
+        
+        text = soup.get_text(separator='\n', strip=True)
+        return text[:max_chars]
+    except Exception as e:
+        return f"Failed to read URL: {str(e)}"
+
+
+def detect_and_process_tools(user_input: str) -> Tuple[str, List[str]]:
+    """Detect tool usage and process accordingly."""
+    enhanced_input = user_input
+    tool_outputs = []
+    
+    # Always inject current time for time-related queries
+    time_keywords = ['time', 'date', 'today', 'now', 'current', 'when', 'what day', 'what month', 'what year']
+    if any(kw in user_input.lower() for kw in time_keywords):
+        datetime_info = get_current_datetime()
+        enhanced_input = f"[CURRENT DATE/TIME]:\n{datetime_info}\n\n[USER QUERY]: {user_input}"
+        tool_outputs.append(f"📅 Retrieved current date/time")
+    
+    # Web search
+    if "search:" in user_input.lower():
+        query = user_input.split("search:")[-1].split("\n")[0].strip()
+        results = web_search(query)
+        enhanced_input += f"\n\n[WEB SEARCH RESULTS for '{query}']:\n{results}"
+        tool_outputs.append(f"🔍 Searched: {query}")
+    
+    # URL reading
+    urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', user_input)
+    for url in urls[:3]:  # Max 3 URLs
+        content = read_url(url)
+        enhanced_input += f"\n\n[CONTENT FROM {url}]:\n{content}"
+        tool_outputs.append(f"📖 Read: {url[:50]}...")
+    
+    return enhanced_input, tool_outputs
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATABASE (Supabase)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_supabase_client = None
+
+def get_supabase():
+    global _supabase_client
+    if _supabase_client is None:
+        try:
+            from supabase import create_client
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_KEY")
+            if url and key:
+                _supabase_client = create_client(url, key)
+        except:
+            pass
+    return _supabase_client
+
+
 def create_session(title: str, theme: str) -> str:
     try:
         db = get_supabase()
         if db:
-            return db.table("chat_sessions").insert({"title": title, "theme": theme}).execute().data[0]["id"]
+            result = db.table("chat_sessions").insert({"title": title, "theme": theme}).execute()
+            return result.data[0]["id"]
     except:
         pass
     return f"local-{hashlib.md5(f'{title}{time.time()}'.encode()).hexdigest()[:12]}"
+
 
 def get_sessions() -> List[Dict]:
     try:
         db = get_supabase()
         if db:
-            return db.table("chat_sessions").select("*").order("created_at", desc=True).limit(20).execute().data
+            return db.table("chat_sessions").select("*").order("created_at", desc=True).limit(30).execute().data
     except:
         pass
     return []
+
 
 def save_message(session_id: str, role: str, content: str, agent_name: str = None):
     try:
         db = get_supabase()
         if db:
-            db.table("messages").insert({"session_id": session_id, "role": role, "agent_name": agent_name, "content": content}).execute()
+            db.table("messages").insert({
+                "session_id": session_id, 
+                "role": role, 
+                "agent_name": agent_name, 
+                "content": content
+            }).execute()
     except:
         pass
+
 
 def get_history(session_id: str) -> List[Dict]:
     try:
@@ -289,101 +429,212 @@ def get_history(session_id: str) -> List[Dict]:
         pass
     return []
 
-def get_embedding(text: str) -> List[float]:
-    h = hashlib.sha256(text.encode()).digest()
-    return [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
 
 def save_memory(content: str):
     try:
         db = get_supabase()
         if db:
-            db.table("memories").insert({"content": content, "embedding": get_embedding(content)}).execute()
+            h = hashlib.sha256(content.encode()).digest()
+            embedding = [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
+            db.table("memories").insert({"content": content, "embedding": embedding}).execute()
     except:
         pass
 
-def recall_memories(query: str) -> List[str]:
+
+def recall_memories(query: str, limit: int = 5) -> List[str]:
     try:
         db = get_supabase()
         if db:
-            result = db.rpc("match_memories", {"query_embedding": get_embedding(query), "match_threshold": 0.7, "match_count": 3}).execute()
+            h = hashlib.sha256(query.encode()).digest()
+            embedding = [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
+            result = db.rpc("match_memories", {
+                "query_embedding": embedding,
+                "match_threshold": 0.7,
+                "match_count": limit
+            }).execute()
             return [m["content"] for m in result.data]
     except:
         pass
     return []
 
-# ===== THE COUNCIL =====
+# ═══════════════════════════════════════════════════════════════════════════════
+# THE PINNACLE COUNCIL DELIBERATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple[str, str, str], None, None]:
-    """The Pinnacle Council Deliberation."""
+    """
+    THE PINNACLE COUNCIL DELIBERATION
+    ══════════════════════════════════
+    
+    A 4-phase deliberation process leveraging the world's most advanced AI models.
+    
+    PHASE 1: ANALYSIS (Strategist)
+        → Deep understanding and strategic planning
+        
+    PHASE 2: EXECUTION (Executor)
+        → Implementation with precision
+        
+    PHASE 3: CRITIQUE (Inquisitor + Sage)
+        → Ruthless examination and logical verification
+        → Auto-fix loop if issues found
+        
+    PHASE 4: SUPREME JUDGMENT (Emperor)
+        → Final synthesis by the most powerful model
+        → The Emperor speaks LAST
+    """
+    
     budget = SESSION_BUDGET
     
-    # Web search
-    if "search:" in user_input.lower():
-        query = user_input.split("search:")[-1].split("\n")[0].strip()
-        yield ("System", f"🔍 Searching: {query}", "system")
-        user_input += f"\n\n[SEARCH]:\n{web_search(query)}"
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PRE-PROCESSING: Tools & Context
+    # ═══════════════════════════════════════════════════════════════════════════
     
-    # Build context
+    enhanced_input, tool_outputs = detect_and_process_tools(user_input)
+    
+    for output in tool_outputs:
+        yield ("System", output, "system")
+    
+    # Build conversation context
     history = get_history(session_id)
-    context = [{"role": m["role"], "content": m["content"][:600]} for m in history[-5:]]
-    save_message(session_id, "user", user_input)
-    context.append({"role": "user", "content": user_input})
+    context = []
+    for msg in history[-10:]:  # Last 10 messages for context
+        context.append({
+            "role": msg["role"],
+            "content": f"[{msg.get('agent_name', 'User')}]: {msg['content'][:1500]}"
+        })
     
-    # PHASE 1: STRATEGIST
-    yield ("System", "⚡ PHASE 1: Analyzing...", "system")
+    # Save user message
+    save_message(session_id, "user", user_input)
+    context.append({"role": "user", "content": enhanced_input})
+    
+    # Recall relevant memories
+    memories = recall_memories(user_input)
+    if memories:
+        memory_context = "\n---\n".join(memories[:3])
+        context.insert(0, {"role": "system", "content": f"[RELEVANT PAST SOLUTIONS]:\n{memory_context}"})
+        yield ("System", f"📜 Recalled {len(memories)} relevant memories", "system")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 1: STRATEGIC ANALYSIS
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    yield ("System", "⚡ **PHASE 1: Strategic Analysis**", "system")
+    
     strategist = AGENTS["Strategist"]
     yield ("System", f"{strategist['avatar']} Summoning {strategist['name']}...", "system")
     
-    plan, tokens = call_llm("Strategist", [{"role": "system", "content": strategist["style"]}] + context, 2000)
+    plan, tokens = call_agent("Strategist", context, 3000)
     budget -= tokens
+    
     save_message(session_id, "assistant", plan, strategist["name"])
-    context.append({"role": "assistant", "content": plan})
+    context.append({"role": "assistant", "content": f"[STRATEGIST]: {plan}"})
     yield (strategist["name"], plan, "strategist")
     
-    # PHASE 2: EXECUTOR
-    yield ("System", "⚔️ PHASE 2: Executing...", "system")
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 2: EXECUTION
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    yield ("System", "⚔️ **PHASE 2: Execution**", "system")
+    
     executor = AGENTS["Executor"]
-    yield ("System", f"{executor['avatar']} {executor['name']} forging...", "system")
+    yield ("System", f"{executor['avatar']} {executor['name']} forging solution...", "system")
     
-    code, tokens = call_llm("Executor", [{"role": "system", "content": executor["style"]}] + context, 4000)
+    solution, tokens = call_agent("Executor", context, 8000)
     budget -= tokens
-    save_message(session_id, "assistant", code, executor["name"])
-    context.append({"role": "assistant", "content": code})
-    yield (executor["name"], code, "code")
     
-    # INNOVATOR
-    innovator = AGENTS["Innovator"]
-    yield ("System", f"{innovator['avatar']} {innovator['name']} exploring...", "system")
-    alt, tokens = call_llm("Innovator", [{"role": "system", "content": innovator["style"]}] + context, 1500)
-    save_message(session_id, "assistant", alt, innovator["name"])
-    yield (innovator["name"], alt, "innovator")
+    save_message(session_id, "assistant", solution, executor["name"])
+    context.append({"role": "assistant", "content": f"[EXECUTOR]: {solution}"})
+    yield (executor["name"], solution, "code")
     
-    # PHASE 3: INQUISITOR
-    yield ("System", "🔍 PHASE 3: Examining...", "system")
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 3: CRITIQUE & VERIFICATION
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    yield ("System", "🔍 **PHASE 3: Critique & Verification**", "system")
+    
     inquisitor = AGENTS["Inquisitor"]
     approved = False
+    max_revisions = 2
     
-    critique, tokens = call_llm("Inquisitor", [{"role": "system", "content": inquisitor["style"]}] + context, 1200)
-    save_message(session_id, "assistant", critique, inquisitor["name"])
-    yield (inquisitor["name"], critique, "critique")
+    for revision in range(max_revisions + 1):
+        yield ("System", f"{inquisitor['avatar']} {inquisitor['name']} examining... (Round {revision + 1})", "system")
+        
+        critique, tokens = call_agent("Inquisitor", context, 2000)
+        budget -= tokens
+        
+        save_message(session_id, "assistant", critique, inquisitor["name"])
+        context.append({"role": "assistant", "content": f"[INQUISITOR]: {critique}"})
+        yield (inquisitor["name"], critique, "critique")
+        
+        if "APPROVED" in critique.upper():
+            approved = True
+            yield ("System", "✅ **Solution APPROVED by the Inquisitor**", "system")
+            break
+        elif "REJECTED" in critique.upper() and revision < max_revisions:
+            yield ("System", f"🔧 Auto-revising based on critique...", "system")
+            
+            revision_prompt = f"The Inquisitor found issues:\n{critique}\n\nRevise the solution to address ALL issues."
+            context.append({"role": "user", "content": revision_prompt})
+            
+            solution, tokens = call_agent("Executor", context, 8000)
+            budget -= tokens
+            
+            save_message(session_id, "assistant", solution, f"{executor['name']} (Revised)")
+            context.append({"role": "assistant", "content": f"[EXECUTOR REVISED]: {solution}"})
+            yield (f"{executor['name']} (Revised)", solution, "code")
     
-    if "APPROVED" in critique.upper():
-        approved = True
-        yield ("System", "✅ Approved", "system")
+    # Sage verification for complex queries
+    if len(user_input) > 100 or any(kw in user_input.lower() for kw in ['prove', 'why', 'logic', 'math', 'calculate']):
+        sage = AGENTS["Sage"]
+        yield ("System", f"{sage['avatar']} {sage['name']} verifying logic...", "system")
+        
+        reasoning, tokens = call_agent("Sage", context, 2000)
+        budget -= tokens
+        
+        save_message(session_id, "assistant", reasoning, sage["name"])
+        context.append({"role": "assistant", "content": f"[SAGE]: {reasoning}"})
+        yield (sage["name"], reasoning, "sage")
     
-    # PHASE 4: EMPEROR
-    yield ("System", "👑 PHASE 4: Final Judgment...", "system")
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 4: SUPREME JUDGMENT (EMPEROR)
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    yield ("System", "👑 **PHASE 4: Supreme Judgment**", "system")
+    
     emperor = AGENTS["Emperor"]
-    yield ("System", f"{emperor['avatar']} {emperor['name']} synthesizing...", "system")
+    yield ("System", f"{emperor['avatar']} {emperor['name']} synthesizing final answer...", "system")
     
-    verdict, tokens = call_llm("Emperor", [
-        {"role": "system", "content": emperor["style"]},
-        {"role": "user", "content": f"PLAN: {plan[:500]}\nCODE: {code[:1000]}\nCRITIQUE: {critique[:300]}\n\nDeliver the FINAL answer."}
-    ], 4000)
+    # Build Emperor's comprehensive context
+    emperor_context = f"""[ORIGINAL QUERY]: {enhanced_input[:800]}
+
+[STRATEGIST'S ANALYSIS]:
+{plan[:1200]}
+
+[EXECUTOR'S SOLUTION]:
+{solution[:2500]}
+
+[INQUISITOR'S VERDICT]:
+{critique[:800]}
+{"✅ APPROVED" if approved else "⚠️ Had concerns"}
+
+Now synthesize the FINAL, AUTHORITATIVE answer. 
+Take the best from all perspectives.
+Ensure completeness and accuracy.
+Your word is LAW."""
+    
+    verdict, tokens = call_agent("Emperor", [{"role": "user", "content": emperor_context}], 8000)
+    budget -= tokens
+    
     save_message(session_id, "assistant", verdict, emperor["name"])
     yield (emperor["name"], verdict, "emperor")
     
-    if approved:
-        save_memory(f"SUCCESS: {user_input[:100]} -> {verdict[:200]}")
-        yield ("System", "📖 Archived", "system")
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ARCHIVAL
+    # ═══════════════════════════════════════════════════════════════════════════
     
-    yield ("System", f"🏯 Complete.", "system")
+    if approved:
+        memory = f"SOLVED: {user_input[:200]}\n\nSOLUTION: {verdict[:500]}"
+        save_memory(memory)
+        yield ("System", "📖 Solution archived to eternal memory", "system")
+    
+    yield ("System", f"🏯 **Council Complete** | Tokens used: {SESSION_BUDGET - budget:,} / {SESSION_BUDGET:,}", "system")
