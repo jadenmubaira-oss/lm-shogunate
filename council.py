@@ -11,7 +11,6 @@ HIERARCHY:
 - GROK 4 (Inquisitor): Critique & flaw detection
 - KIMI K2 (Sage): Deep logical reasoning
 - GEMINI 2.0 (Innovator): Creative alternatives
-- HAIKU 4.5 (Scribe): Summarization (optional)
 """
 
 import os
@@ -19,12 +18,30 @@ import hashlib
 import time
 from typing import Generator, List, Dict, Optional, Tuple
 from dotenv import load_dotenv
-from litellm import completion, embedding
 import requests
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
+
+# ===== LAZY IMPORTS FOR OPTIONAL PACKAGES =====
+def get_litellm():
+    """Lazy import LiteLLM."""
+    try:
+        from litellm import completion, embedding
+        return completion, embedding
+    except ImportError:
+        return None, None
+
+def get_gemini():
+    """Lazy import Google Generative AI."""
+    try:
+        import google.generativeai as genai
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+        return genai
+    except ImportError:
+        return None
 
 # ===== LAZY SUPABASE INITIALIZATION =====
 _supabase_client = None
@@ -33,13 +50,14 @@ def get_supabase():
     """Lazy initialization of Supabase to avoid import-time errors."""
     global _supabase_client
     if _supabase_client is None:
-        from supabase import create_client
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        if url and key:
-            _supabase_client = create_client(url, key)
-        else:
-            return None
+        try:
+            from supabase import create_client
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_KEY")
+            if url and key:
+                _supabase_client = create_client(url, key)
+        except:
+            pass
     return _supabase_client
 
 # ===== CONFIGURATION =====
@@ -55,7 +73,7 @@ AGENTS = {
         "avatar": "👑",
         "tier": 1,
         "style": """You are THE EMPEROR, the Supreme Oracle of this council. You are the wisest and most powerful.
-        
+
 You have received the deliberations of your council: the Strategist's plan, the Executor's code, 
 the Inquisitor's critique, the Sage's reasoning, and the Innovator's alternative.
 
@@ -158,23 +176,6 @@ YOUR ROLE:
 
 Be creative. Be bold. Sometimes the best solution is the unexpected one."""
     },
-    
-    # TIER 3: SUPPORT
-    "Scribe": {
-        "name": "書記 (Scribe)",
-        "model_key": "MODEL_HAIKU",
-        "avatar": "📜",
-        "tier": 3,
-        "style": """You are THE SCRIBE, keeper of records.
-
-YOUR ROLE:
-1. SUMMARIZE long discussions concisely
-2. EXTRACT key points from verbose outputs
-3. FORMAT information clearly
-4. RECORD important decisions
-
-Be brief. Be clear. Preserve what matters."""
-    }
 }
 
 # ===== THEME DEFINITIONS =====
@@ -213,11 +214,21 @@ def get_model(key: str) -> Optional[str]:
     """Get model string from environment variable."""
     return os.getenv(key)
 
+def get_available_model() -> str:
+    """Get any available model as fallback."""
+    # Try each model in order of preference
+    for key in ["MODEL_OPUS", "MODEL_SONNET", "MODEL_GPT", "MODEL_GROK", "MODEL_KIMI", "MODEL_GEMINI", "MODEL_HAIKU"]:
+        model = get_model(key)
+        if model:
+            return model
+    # Ultimate fallback - Gemini is usually free
+    return "gemini/gemini-2.0-flash-exp"
+
 def resolve_model_for_agent(agent_key: str, budget: int) -> str:
     """Resolve the best available model for an agent, with fallbacks."""
     agent = AGENTS.get(agent_key)
     if not agent:
-        return get_model("MODEL_SONNET") or get_model("MODEL_GPT")
+        return get_available_model()
     
     # Try primary model
     primary = get_model(agent["model_key"])
@@ -226,8 +237,8 @@ def resolve_model_for_agent(agent_key: str, budget: int) -> str:
     
     # Fallback chain based on tier
     fallbacks = {
-        1: ["MODEL_OPUS", "MODEL_SONNET", "MODEL_GPT"],  # Emperor needs the best
-        2: ["MODEL_SONNET", "MODEL_GPT", "MODEL_GEMINI"],
+        1: ["MODEL_OPUS", "MODEL_SONNET", "MODEL_GPT", "MODEL_GEMINI"],
+        2: ["MODEL_SONNET", "MODEL_GPT", "MODEL_GEMINI", "MODEL_HAIKU"],
         3: ["MODEL_HAIKU", "MODEL_GEMINI"]
     }
     
@@ -236,9 +247,28 @@ def resolve_model_for_agent(agent_key: str, budget: int) -> str:
         if model:
             return model
     
-    return "gemini/gemini-2.0-flash-exp"  # Ultimate fallback
+    return get_available_model()
 
 # ===== LLM CALLER =====
+def call_gemini_direct(prompt: str, max_tokens: int = 3000) -> Tuple[str, int]:
+    """Call Gemini directly without LiteLLM."""
+    try:
+        genai = get_gemini()
+        if not genai:
+            return "⚠️ Gemini not available", 0
+        
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.7
+            )
+        )
+        return response.text, max_tokens
+    except Exception as e:
+        return f"⚠️ Gemini ERROR: {str(e)}", 0
+
 def call_llm(
     model: str, 
     messages: List[Dict], 
@@ -252,28 +282,62 @@ def call_llm(
         
         allowed = min(max_tokens, MAX_PER_CALL)
         
+        # Handle Gemini separately (direct API call)
+        if model.startswith("gemini/") or "gemini" in model.lower():
+            # Combine messages into a single prompt for Gemini
+            prompt = "\n\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages])
+            return call_gemini_direct(prompt, allowed)
+        
+        # Get LiteLLM
+        completion, _ = get_litellm()
+        if not completion:
+            return "⚠️ LiteLLM not available", 0
+        
         kwargs = {
             "model": model,
             "messages": messages,
-            "max_tokens": allowed,
             "temperature": temperature,
         }
         
-        # Azure configuration
-        if model.startswith("azure/"):
+        # Handle different model types
+        # Azure AI Foundry uses azure_ai/ prefix
+        if model.startswith("azure_ai/") or model.startswith("azure/"):
             kwargs["api_key"] = os.getenv("AZURE_API_KEY")
-            kwargs["api_base"] = os.getenv("AZURE_API_BASE")
-            kwargs["api_version"] = os.getenv("AZURE_API_VERSION", "2024-10-21")
-        elif model.startswith("gemini/"):
-            kwargs["api_key"] = os.getenv("GEMINI_API_KEY")
+            
+            # Azure AI Foundry endpoint format
+            api_base = os.getenv("AZURE_API_BASE", "")
+            if not api_base.endswith("/models"):
+                api_base = api_base.rstrip("/") + "/models"
+            kwargs["api_base"] = api_base
+            
+            # Ensure model uses azure_ai/ prefix for Azure AI Foundry
+            if model.startswith("azure/"):
+                model = model.replace("azure/", "azure_ai/", 1)
+                kwargs["model"] = model
+            
+            # GPT models need max_completion_tokens, others use max_tokens
+            if "gpt" in model.lower() or "o1" in model.lower():
+                kwargs["max_completion_tokens"] = allowed
+            else:
+                kwargs["max_tokens"] = allowed
+        else:
+            kwargs["max_tokens"] = allowed
         
         response = completion(**kwargs)
         content = response.choices[0].message.content
-        tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else allowed
+        tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else allowed
         return content, tokens_used
         
     except Exception as e:
-        return f"⚠️ ERROR [{model}]: {str(e)}", 0
+        error_msg = str(e)
+        
+        # If model not found, try fallback
+        if "unknown_model" in error_msg.lower() or "not found" in error_msg.lower():
+            fallback = get_available_model()
+            if fallback and fallback != model:
+                return call_llm(fallback, messages, max_tokens, temperature)
+        
+        return f"⚠️ ERROR [{model}]: {error_msg}", 0
 
 # ===== TOOLS =====
 def web_search(query: str, num_results: int = 5) -> str:
@@ -300,12 +364,11 @@ def read_url(url: str) -> str:
         response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Remove scripts and styles
         for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
             tag.decompose()
         
         text = soup.get_text(separator='\n', strip=True)
-        return text[:5000]  # Limit length
+        return text[:5000]
     except Exception as e:
         return f"Failed to read URL: {str(e)}"
 
@@ -362,20 +425,7 @@ def get_history(session_id: str) -> List[Dict]:
 
 def get_embedding(text: str) -> List[float]:
     """Get vector embedding for semantic search."""
-    model = os.getenv("MODEL_EMBEDDING")
-    if model:
-        try:
-            kwargs = {"model": model, "input": [text]}
-            if model.startswith("azure/"):
-                kwargs["api_key"] = os.getenv("AZURE_API_KEY")
-                kwargs["api_base"] = os.getenv("AZURE_API_BASE")
-                kwargs["api_version"] = os.getenv("AZURE_API_VERSION", "2024-10-21")
-            resp = embedding(**kwargs)
-            return resp.data[0]["embedding"]
-        except:
-            pass
-    
-    # Deterministic fallback
+    # Deterministic fallback (always works)
     h = hashlib.sha256(text.encode()).digest()
     return [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
 
@@ -435,7 +485,7 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     if "http://" in user_input or "https://" in user_input:
         import re
         urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', user_input)
-        for url in urls[:2]:  # Max 2 URLs
+        for url in urls[:2]:
             yield ("System", f"📖 Reading: {url[:50]}...", "system")
             content = read_url(url)
             user_input += f"\n\n[CONTENT FROM {url}]:\n{content[:2000]}"
@@ -443,7 +493,7 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     # Build context
     history = get_history(session_id)
     context = []
-    for msg in history[-8:]:  # Last 8 messages for context
+    for msg in history[-8:]:
         context.append({
             "role": msg["role"],
             "content": f"[{msg.get('agent_name', 'User')}]: {msg['content'][:1000]}"
@@ -552,7 +602,7 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
             model,
             [{"role": "system", "content": inquisitor["style"]}] + context,
             max_tokens=1500,
-            temperature=0.3  # Lower temp for more consistent judgments
+            temperature=0.3
         )
         budget -= tokens
         
@@ -590,7 +640,6 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     emperor = AGENTS["Emperor"]
     yield ("System", f"{emperor['avatar']} {emperor['name']} synthesizing all wisdom...", "system")
     
-    # Emperor gets EVERYTHING with explicit context
     emperor_context = f"""You have received the full deliberation of your council:
 
 ORIGINAL REQUEST: {user_input[:500]}
@@ -615,14 +664,14 @@ Now synthesize the FINAL, authoritative answer. Take the best from all perspecti
             {"role": "user", "content": emperor_context}
         ],
         max_tokens=4000,
-        temperature=0.4  # Balanced creativity and consistency
+        temperature=0.4
     )
     budget -= tokens
     
     save_message(session_id, "assistant", final_verdict, emperor["name"])
     yield (emperor["name"], final_verdict, "emperor")
     
-    # Archive successful solution to memory
+    # Archive successful solution
     if approved:
         memory = f"SUCCESSFUL SOLUTION for: {user_input[:150]}\n\nFINAL VERDICT: {final_verdict[:500]}"
         save_memory(memory)

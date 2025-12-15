@@ -9,9 +9,9 @@ PyPDF2==3.0.1
 # === AI MODELS ===
 litellm==1.30.0
 openai==1.12.0
+google-generativeai==0.8.3
 
 # === SUPABASE (PINNED COMPATIBLE VERSIONS) ===
-# These specific versions are compatible and avoid the 'proxy' argument error
 supabase==2.3.0
 gotrue==2.4.2
 httpx==0.24.1
