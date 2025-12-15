@@ -1,9 +1,21 @@
+# === CORE ===
 streamlit==1.31.0
-litellm==1.30.0
 python-dotenv==1.0.0
-supabase==2.3.0
-openai==1.12.0
 tenacity==8.2.3
 requests==2.31.0
 beautifulsoup4==4.12.3
 PyPDF2==3.0.1
+
+# === AI MODELS ===
+litellm==1.30.0
+openai==1.12.0
+
+# === SUPABASE (PINNED COMPATIBLE VERSIONS) ===
+# These specific versions are compatible and avoid the 'proxy' argument error
+supabase==2.3.0
+gotrue==2.4.2
+httpx==0.24.1
+httpcore==0.17.3
+
+# === ASYNC SUPPORT ===
+anyio==4.2.0

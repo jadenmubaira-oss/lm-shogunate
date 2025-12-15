@@ -1,375 +1,189 @@
-# LM Shogunate — Autonomous Multi-Agent LLM Council
+# 🏯 LM SHOGUNATE: The Pinnacle Multi-Agent AI Council
 
-Welcome to LM Shogunate — a multi-agent autonomous system where multiple top-tier LLM personas collaborate to plan, code, critique, auto-fix, and store results. This README provides a complete, step-by-step guide for a beginner to get from zero to a running deployment (local and Render).
+> **A unified ensemble of the world's most advanced AI models working together as a self-improving superintelligence.**
 
-Important: Environment variables (API keys) must be set in your host (Render or environment). Do NOT commit `.env` to the repo.
+When you ask a question, it's not answered by one AI — it's deliberated by a **council of 6 AI Lords**, each with distinct capabilities, who debate, critique, refine, and converge on the optimal solution.
 
-Contents
-- What this is
-- Architecture overview
-- Prerequisites
-- Files in this repo
-- Quickstart (local)
-- Deploy to Render (recommended)
-- Supabase (memory) setup — you mentioned this is already done
-- How the council works (agent flow)
-- Theme behavior (UI only)
-- Security & rotating keys
-- Cost & budgeting
-- Troubleshooting
+## 👑 The Council Hierarchy
 
----
+| Tier | Agent | Model | Role | Description |
+|------|-------|-------|------|-------------|
+| **1** | 天皇 (Emperor) | **Claude Opus 4.5** | Supreme Oracle | **THE SMARTEST MODEL** - Speaks LAST, makes FINAL decisions, resolves disputes |
+| **2** | 軍師 (Strategist) | Claude Sonnet 4.5 | Planner | Analyzes problems, designs architecture, creates battle plans |
+| **2** | 刀匠 (Executor) | GPT-5.2 | Coder | Implements production-ready code with precision |
+| **2** | 審問官 (Inquisitor) | Grok 4 | Critic | Ruthlessly examines code, finds every flaw |
+| **2** | 賢者 (Sage) | Kimi K2 | Reasoner | Deep logical reasoning, mathematical proofs |
+| **2** | 発明家 (Innovator) | Gemini 2.0 | Creative | Unconventional approaches, out-of-box thinking |
 
-What this is
-------------
-- A Streamlit UI (`app.py`) presenting a themed interface (Shogunate, Bandit Camp, Neon Tokyo).
-- An orchestration layer (`council.py`) that runs four personas in sequence: Architect, Coder, Critic, Wildcard. They see each other's output and can iterate until a solution is approved.
-- Supabase used as persistent storage: sessions, messages, and long-term vector memory.
+## ⚡ How It Works
 
-Architecture overview
----------------------
-- UI: Streamlit app (`app.py`) — mobile responsive.
-- Orchestrator: `council.py` — calls your deployed LLMs via Azure Foundry / Gemini keys.
-- Memory: Supabase with vector extension for semantic recall.
-- Host: Render (free tier recommended) — environment variables configured in Render.
-
-Prerequisites
--------------
-- Python 3.11+ locally (to run locally). Render will use its runtime.
-- Git and a GitHub account with the repo pushed.
-- Supabase project with the schema (you mentioned you already ran the SQL).
-- Render account with the repository connected and environment variables set.
-- Azure Foundry keys and Gemini API key set as env variables in Render.
-
-Files in this repo
-------------------
-- `app.py` — Streamlit front-end and theme injection.
-- `council.py` — Orchestration of personas and database functions.
-- `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
-- `app.py` — Streamlit front-end and theme injection.
-- `council.py` — Orchestration of personas and database functions. NOTE: Opus (your Azure Opus deployment) is configured as the primary Architect and primary Coder for the highest-quality planning and code generation.
-- `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
-
-Quickstart (local)
-------------------
-1. Clone the repo and create a venv:
-
-```bash
-git clone https://github.com/jadenmubaira-oss/lm-shogunate.git
-cd lm-shogunate
-python -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+```
+USER QUERY
+    ↓
+┌─────────────────────────────────────────────┐
+│ PHASE 1: UNDERSTANDING                       │
+│  • Strategist analyzes the problem           │
+│  • Sage identifies logical constraints       │
+│  • Memory recalls relevant past solutions    │
+└─────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────┐
+│ PHASE 2: EXECUTION                           │
+│  • Executor writes the primary solution      │
+│  • Innovator proposes alternatives           │
+└─────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────┐
+│ PHASE 3: CRITIQUE (Auto-fix loop x3)        │
+│  • Inquisitor examines the code              │
+│  • If REJECTED → Executor auto-fixes         │
+└─────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────┐
+│ PHASE 4: SUPREME JUDGMENT                    │
+│  👑 THE EMPEROR (Opus 4.5)                   │
+│  • Receives ALL prior outputs                │
+│  • Synthesizes the best elements             │
+│  • Delivers the FINAL, authoritative answer  │
+└─────────────────────────────────────────────┘
+    ↓
+UNIFIED RESPONSE
 ```
 
-2. Create a local `.env` (only for local testing). **DO NOT** commit it.
+## 🎨 Themes
 
-Example `.env` (local only):
+Switch between three immersive aesthetic eras:
 
-```text
-AZURE_API_KEY="<YOUR_AZURE_KEY>"
-AZURE_API_BASE="https://polyprophet-resource.services.ai.azure.com"
-AZURE_API_VERSION="2024-10-21"
-GEMINI_API_KEY="<YOUR_GEMINI_KEY>"
-SUPABASE_URL="<YOUR_SUPABASE_URL>"
-SUPABASE_KEY="<YOUR_SUPABASE_ANON_KEY>"
-APP_PASSWORD="your_passcode"
-MODEL_OPUS="azure/claude-opus-4-5"
-MODEL_GPT="azure/gpt-5.2-chat"
-MODEL_GROK="azure/grok-4-fast-reasoning"
-MODEL_GEMINI="gemini/gemini-2.0-flash-exp"
+- **⚔️ Shogunate**: Feudal Japan — Honor, Strategy, Power
+- **🪓 Bandit Camp**: Outlaws & Rogues — Survival, Cunning, Freedom  
+- **🌃 Neon Tokyo**: Cyberpunk Future — Neon, Innovation, Style
+
+## 🚀 Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-Model Council** | 6 frontier AI models collaborating |
+| **Opus as Emperor** | Smartest model makes final decisions |
+| **Auto-Fix Loop** | Self-correcting code with 3 retry cycles |
+| **Web Search** | Type `search: query` to search the web |
+| **URL Reading** | Paste URLs to analyze web content |
+| **File Upload** | Analyze PDFs, code files, documents |
+| **Vector Memory** | Semantic recall of past solutions |
+| **Theme System** | Three immersive visual themes |
+| **Mobile-Ready** | Fully responsive design |
+
+## 📋 Environment Variables
+
+```env
+# === AZURE AI FOUNDRY ===
+AZURE_API_KEY=your_azure_key
+AZURE_API_BASE=https://your-resource.services.ai.azure.com
+AZURE_API_VERSION=2024-10-21
+
+# === GOOGLE GEMINI ===
+GEMINI_API_KEY=your_gemini_key
+
+# === SUPABASE (Memory) ===
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+
+# === APP ===
+APP_PASSWORD=shogun2024
+
+# === MODEL MAPPING ===
+MODEL_OPUS=azure/claude-opus-4-5
+MODEL_SONNET=azure/claude-sonnet-4-5
+MODEL_GPT=azure/gpt-5.2-chat
+MODEL_GROK=azure/grok-4-fast-reasoning
+MODEL_KIMI=azure/Kimi-K2-Thinking
+MODEL_HAIKU=azure/claude-haiku-4-5
+MODEL_GEMINI=gemini/gemini-2.0-flash-exp
+
+# === BUDGET ===
+SESSION_TOKEN_BUDGET=15000
+MAX_TOKENS_PER_CALL=4000
 ```
-```
 
-3. Run the app locally:
+## 🗄️ Supabase Schema
 
-```bash
-streamlit run app.py --server.port 8501
-```
-
-4. Open `http://localhost:8501` on your phone (if on same network) or computer.
-
-Deploy to Render (recommended)
------------------------------
-1. Push your repo to GitHub and connect Render to the repo.
-2. In Render, create a new **Web Service** (connect to `main` branch).
-3. Build command:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start command:
-
-```bash
-streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
-```
-
-4. Add environment variables in Render (do not use `.env` in repo). Important keys (exact names):
- - `AZURE_API_KEY` — your Azure Foundry key
- - `AZURE_API_BASE` — https://polyprophet-resource.services.ai.azure.com
- - `AZURE_API_VERSION` — e.g., 2024-10-21
- - `GEMINI_API_KEY` — your Google Gemini key
- - `SUPABASE_URL` — your Supabase project URL (e.g., https://xyz.supabase.co)
- - `SUPABASE_KEY` — your Supabase anon/public key
- - `APP_PASSWORD` — the passcode for the Streamlit UI (example: Tj!74162oo42oo4)
- - Model envs (map your deployment names):
-   - `MODEL_OPUS`=azure/claude-opus-4-5
-   - `MODEL_GPT`=azure/gpt-5.2-chat
-   - `MODEL_GROK`=azure/grok-4-fast-reasoning
-   - `MODEL_GEMINI`=gemini/gemini-2.0-flash-exp
-
-Notes on embeddings (easiest setup)
-----------------------------------
-- The project previously required a deployed embedding model. For the easiest setup, the app now uses a deterministic mock embedding function that does NOT require any embedding model or extra API keys. This makes deployment and initial testing trivial.
-- If you later want higher-quality semantic search using real embeddings, you can deploy an embedding model in Azure Foundry and replace the `get_embedding` function to call it — I can help with that migration.
-
-How the Supabase memory works (kept for persistence)
----------------------------------------------------
-1. The app stores every message in the `messages` table and saves successful solutions in `memories` with an embedding vector.
-2. The `match_memories` function (run in SQL on Supabase) performs a nearest-neighbor search against stored embeddings and returns the top relevant memories to the council when you submit a request.
-3. Because `get_embedding` uses a deterministic mock, the memory system will behave consistently out of the box without extra configuration. If you later enable real embeddings, the memory retrieval will improve.
-
-Easiest setup summary (minimal required env vars)
-------------------------------------------------
-Set these in Render (only):
-- `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION` — for Azure Foundry model calls
-- `GEMINI_API_KEY` — for Gemini wildcard role
-- `SUPABASE_URL`, `SUPABASE_KEY` — for memory persistence
-- `APP_PASSWORD` — passcode to access the UI
-- `MODEL_OPUS`, `MODEL_GPT`, `MODEL_GROK`, `MODEL_GEMINI` — map to your deployed model names
-
-With these set, you can deploy to Render and the app will run immediately using deterministic mock embeddings for memory.
-
-5. Deploy and open your Render URL on mobile or desktop.
-
-Supabase — memory (you said you already ran schema)
--------------------------------------------------
-Ensure you enabled the `vector` extension and created `chat_sessions`, `messages`, `memories`, and the `match_memories` function. If you haven't already, run the SQL below in the Supabase SQL editor.
-
-Run this SQL in Supabase SQL editor (creates extensions, tables, index, and `match_memories`):
+Run this in your Supabase SQL Editor:
 
 ```sql
--- 1) Ensure required extensions
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Enable vector extension
+create extension if not exists vector;
 
--- 2) Sessions table
-CREATE TABLE IF NOT EXISTS chat_sessions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  metadata jsonb
+-- Chat sessions
+create table chat_sessions (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamptz default now(),
+  title text not null,
+  theme text default 'Shogunate'
 );
 
--- 3) Messages table
-CREATE TABLE IF NOT EXISTS messages (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id uuid REFERENCES chat_sessions(id) ON DELETE CASCADE,
-  role text NOT NULL,
-  content text,
-  created_at timestamptz NOT NULL DEFAULT now()
+-- Messages
+create table messages (
+  id bigserial primary key,
+  session_id uuid references chat_sessions(id) on delete cascade,
+  role text not null,
+  agent_name text,
+  content text not null,
+  created_at timestamptz default now()
 );
 
--- 4) Memories table (embedding vector uses 1536 dims; adjust if you later use a different embedding size)
-CREATE TABLE IF NOT EXISTS memories (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id uuid REFERENCES chat_sessions(id) ON DELETE SET NULL,
-  title text,
-  content text,
+-- Long-term memory
+create table memories (
+  id bigserial primary key,
+  content text not null,
   embedding vector(1536),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz default now()
 );
 
--- 5) Index for fast ANN search (ivfflat). Tune lists for your dataset size.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'memories' AND indexname = 'memories_embedding_ivfflat_idx'
-  ) THEN
-    EXECUTE 'CREATE INDEX memories_embedding_ivfflat_idx ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)';
-  END IF;
-END
+-- Memory search function
+create or replace function match_memories(
+  query_embedding vector(1536),
+  match_threshold float default 0.7,
+  match_count int default 3
+) returns table (id bigint, content text, similarity float)
+language plpgsql as $$
+begin
+  return query
+  select memories.id, memories.content,
+         1 - (memories.embedding <=> query_embedding) as similarity
+  from memories
+  where 1 - (memories.embedding <=> query_embedding) > match_threshold
+  order by similarity desc
+  limit match_count;
+end;
 $$;
-
--- 6) Nearest-neighbor helper: returns rows ordered by nearest embedding and a simple score
-CREATE OR REPLACE FUNCTION match_memories(query vector(1536), max_results integer DEFAULT 5)
-RETURNS TABLE (
-  id uuid,
-  session_id uuid,
-  title text,
-  content text,
-  score double precision
-) AS $$
-  SELECT
-    m.id,
-    m.session_id,
-    m.title,
-    m.content,
-    1.0 / (1.0 + (m.embedding <-> query)) AS score
-  FROM memories m
-  WHERE m.embedding IS NOT NULL
-  ORDER BY m.embedding <-> query
-  LIMIT max_results;
-$$ LANGUAGE SQL STABLE;
 ```
 
-Notes:
-- The SQL above uses `vector(1536)` because the app's mock embedding uses 1536 dims. If you later enable real embeddings with a different dimensionality, update the `vector(...)` size accordingly.
-- If your Supabase plan or Postgres build does not support `ivfflat`, you can omit the ivfflat index line; queries will still work but may be slower for large datasets.
+## 🌐 Deploy to Render
 
-Quick smoke test (run in SQL editor):
+1. Push to GitHub
+2. Go to [render.com](https://render.com) → New Web Service
+3. Connect your repository
+4. Set:
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`
+5. Add all environment variables
+6. Click "Manual Deploy" → "Clear build cache & deploy"
 
-1) Create a session and insert a sample memory (ensure your vector literal matches the declared dimension):
+## 💡 Usage
 
-```sql
-INSERT INTO chat_sessions (id) VALUES (gen_random_uuid()) RETURNING id;
--- Replace <SESSION_ID> in the next statement with the returned id and provide a proper 1536-length vector
-INSERT INTO memories (session_id, title, content, embedding)
-VALUES ('<SESSION_ID>', 'Test memory', 'This is a test memory content',
-        ARRAY[0.0 /* repeat 1536 floats as needed */]::vector);
-```
+- **Basic Query**: Just type your question
+- **Web Search**: `search: latest AI news`
+- **URL Analysis**: Paste any URL in your message
+- **File Upload**: Click the upload button to attach files
 
-2) Query nearest neighbors:
+## 🏆 Why This Is The Pinnacle
 
-```sql
-SELECT * FROM match_memories(ARRAY[0.0 /* 1536 floats */]::vector, 5);
-```
-
-If you want me to verify these steps remotely, provide a temporary read-only `SUPABASE_KEY` (or paste the SQL editor output) and I will run the checks and report back.
-
-Supabase gotchas & fixes
--------------------------
-Real Supabase projects sometimes differ from the example schema (existing installs or earlier migrations). Here are quick checks and fixes you can run if you hit errors:
-
-1) Inspect the `memories` table shape:
-
-```sql
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_name = 'memories';
-```
-
-2) Common issues and fixes:
-- Missing `session_id`, `title`, or `content` in `memories`: add them (non-destructive):
-
-```sql
-ALTER TABLE memories ADD COLUMN IF NOT EXISTS session_id uuid;
-ALTER TABLE memories ADD COLUMN IF NOT EXISTS title text;
-ALTER TABLE memories ADD COLUMN IF NOT EXISTS content text;
-```
-
-- `chat_sessions.title` is NOT NULL: create sessions with a title or relax the constraint. Preferred (create with title):
-
-```sql
-INSERT INTO chat_sessions (title, metadata) VALUES ('Smoke test session', '{}'::jsonb) RETURNING id;
-```
-
-If you prefer to allow empty titles:
-
-```sql
-ALTER TABLE chat_sessions ALTER COLUMN title DROP NOT NULL;
--- or set a default
-ALTER TABLE chat_sessions ALTER COLUMN title SET DEFAULT 'Untitled session';
-```
-
-- `memories.id` type mismatch (you may see `bigint` instead of `uuid`): adapt the function return types or migrate the column. Quick, non-destructive approach — keep `id bigint` in the function:
-
-```sql
-CREATE OR REPLACE FUNCTION match_memories(query vector(1536), max_results integer DEFAULT 5)
-RETURNS TABLE (id bigint, session_id uuid, title text, content text, score double precision) AS $$
-  SELECT m.id, m.session_id, m.title, m.content, 1.0 / (1.0 + (m.embedding <-> query)) AS score
-  FROM memories m
-  WHERE m.embedding IS NOT NULL
-  ORDER BY m.embedding <-> query
-  LIMIT max_results;
-$$ LANGUAGE SQL STABLE;
-```
-
-3) Smoke-test insert (creates a titled session and a 1536-d zero vector memory):
-
-```sql
-WITH s AS (
-  INSERT INTO chat_sessions (title, metadata) VALUES ('Smoke test session', '{}'::jsonb) RETURNING id
-)
-INSERT INTO memories (session_id, title, content, embedding, created_at)
-SELECT s.id, 'Smoke test memory', 'Inserted by smoke test', array_fill(0.0::double precision, ARRAY[1536])::vector, now() FROM s;
-```
-
-4) Verify retrieval:
-
-```sql
-SELECT * FROM match_memories(array_fill(0.0::double precision, ARRAY[1536])::vector, 5);
-```
-
-If anything errors, paste the exact error text here and I'll provide the precise fix.
-
-How the council works (agent flow)
----------------------------------
-1. User sends a request.
-2. Architect (Opus) generates a plan.
-3. Coder (GPT-5.2) writes code.
-4. Critic (Grok) judges; if REJECTED, auto-fix loop runs with Coder revising (configurable retries).
-5. Wildcard (Gemini) offers an alternative.
-6. Successes are saved to Supabase memory via embeddings.
-
-Theme behavior
---------------
-- UI themes (Shogunate, Bandit Camp, Neon Tokyo) affect only visuals — colors, icons, CSS.
-- The actual agent behavior and persona instructions are independent of theme.
-
-Security & rotating keys
-------------------------
-- Never commit `.env` to the repo. Use Render environment variables.
-- If a key has been exposed, rotate it in the provider's console immediately and update Render.
-
-PWA & Mobile install
----------------------
-- The app includes a lightweight Add-to-Home-Screen prompt for modern mobile browsers when using the Neon Tokyo theme. To enable the browser install prompt you may also need to serve the app over HTTPS (Render does this) and follow standard PWA behavior.
-
-Token budgeting & cost controls
-------------------------------
-- Per-session token budget is enforced via `SESSION_TOKEN_BUDGET` (env, default 5000 tokens). You can tune `MAX_TOKENS_PER_CALL` (default 3000) to cap per-call token usage.
-- The system will preferentially use the high-quality `MODEL_OPUS` for `Architect` and `Coder` roles; if budget is low the orchestrator will fall back to cheaper models (e.g., `MODEL_GEMINI` or `MODEL_HAIKU`) automatically.
-
-Environment variable reference (add these to Render):
-- `SESSION_TOKEN_BUDGET` — integer, total token budget per session (default 5000)
-- `MAX_TOKENS_PER_CALL` — integer, per-call hard cap (default 3000)
- - `MODEL_EMBEDDING` — embedding deployment name (optional). Only required if you enable real embeddings; the app defaults to a deterministic mock embedding so no embedding model is required for initial deployment.
-
-Cost & budgeting
------------------
-- Hosting: Render free tier possible; Supabase free tier possible.
-- Model inference costs are the primary ongoing cost — price depends on Azure Foundry / Gemini usage and token counts.
-- To reduce cost: lower `max_tokens`, reduce history size, or use cheaper models for some roles.
-
-Troubleshooting
----------------
-- Build errors (Rust): We removed `tiktoken` to avoid Rust build on Render. If you need `tiktoken`, provide a prebuilt wheel or enable a build image with Rust.
-- Database errors: ensure `SUPABASE_URL` and `SUPABASE_KEY` in Render match your project.
-- Model errors: verify model names match deployments exactly.
-
-**Final Notes**
----------------
-- **Checklist:**: Confirm Render env vars, confirm Supabase schema (extensions + `match_memories`), and verify model deployment names in your Render settings.
-- **Security:**: Keep secrets out of the repo. Rotate any keys that were exposed and use provider consoles to revoke/regenerate keys. Use least-privilege keys for runtime (anon for read; service_role only for migrations/tests).
-- **Testing:**: Use the smoke-test SQL in the `Supabase gotchas & fixes` section to verify vector search and storage. Run an end-to-end test from the UI after deploying env vars.
-- **Embeddings:**: The app defaults to a deterministic mock embedding so no embedding model is required for initial deployment. To enable production-quality semantic search, deploy an embedding model in Azure Foundry, set `MODEL_EMBEDDING`, and update `get_embedding` in `council.py`.
-- **PWA / Mobile:**: The Neon Tokyo theme includes an Add-to-Home prompt. Serve over HTTPS (Render does this) for best mobile install behavior.
-- **Cost Control:**: Tune `SESSION_TOKEN_BUDGET` and `MAX_TOKENS_PER_CALL`. Use cheaper fallback models to reduce inference costs.
-- **Troubleshooting:**: If you see DB or model errors, consult the Troubleshooting and Supabase gotchas sections; paste exact errors into the issue for faster debugging.
-- **Contributing / Next Steps:**: Open a PR for UI polish, add tests for `council.py`, or switch the mock embedding to a real provider (I can assist with migration).
-
-Contact & next steps
---------------------
-- If you'd like, I can:
-  - Polish the Neon pink retro theme CSS and add flower motifs.
-  - Add PWA (Add-to-Home) support.
-  - Add a token-metering/budget limit in `council.py` to cap costs.
-
-Enjoy the council.
+1. **Opus 4.5 as Emperor**: The smartest model doesn't waste tokens on first drafts — it receives ALL context and makes the FINAL call
+2. **Specialization**: Each model does what it's best at
+3. **Self-Correcting**: Auto-fix loop with ruthless critics
+4. **Dispute Resolution**: When agents disagree, the Emperor arbitrates
+5. **Memory**: Learns from every successful solution
+6. **Immersive Design**: Theme system makes it engaging
 
 ---
-*(This README was auto-generated and pushed to the repository to make it easy for a beginner to get started.)*
-# lm-shogunate
-Step forward, warrior. The council convenes
+
+*Built with 🏯 for the AI Council*
