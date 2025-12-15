@@ -4,7 +4,10 @@ from typing import Generator, List, Dict
 from dotenv import load_dotenv
 from litellm import completion
 from supabase import create_client, Client
-import tiktoken
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
 
 load_dotenv()
 
@@ -125,10 +128,14 @@ def get_model_name(model_key: str) -> str:
 def count_tokens(text: str) -> int:
     """Estimate token count"""
     try:
-        encoding = tiktoken.encoding_for_model("gpt-4")
-        return len(encoding.encode(text))
-    except:
-        return len(text) // 4  # Rough estimate
+        if tiktoken is not None:
+            encoding = tiktoken.encoding_for_model("gpt-4")
+            return len(encoding.encode(text))
+        # if tiktoken not available, fall through to rough estimate
+    except Exception:
+        pass
+    # Rough fallback estimate (approx 4 chars per token)
+    return max(1, len(text) // 4)
 
 def call_model(model: str, messages: List[Dict], max_tokens: int = 2000) -> str:
     """Unified API caller with fallback"""
