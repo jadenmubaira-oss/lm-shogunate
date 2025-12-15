@@ -349,6 +349,17 @@ Troubleshooting
 - Database errors: ensure `SUPABASE_URL` and `SUPABASE_KEY` in Render match your project.
 - Model errors: verify model names match deployments exactly.
 
+**Final Notes**
+---------------
+- **Checklist:**: Confirm Render env vars, confirm Supabase schema (extensions + `match_memories`), and verify model deployment names in your Render settings.
+- **Security:**: Keep secrets out of the repo. Rotate any keys that were exposed and use provider consoles to revoke/regenerate keys. Use least-privilege keys for runtime (anon for read; service_role only for migrations/tests).
+- **Testing:**: Use the smoke-test SQL in the `Supabase gotchas & fixes` section to verify vector search and storage. Run an end-to-end test from the UI after deploying env vars.
+- **Embeddings:**: The app defaults to a deterministic mock embedding so no embedding model is required for initial deployment. To enable production-quality semantic search, deploy an embedding model in Azure Foundry, set `MODEL_EMBEDDING`, and update `get_embedding` in `council.py`.
+- **PWA / Mobile:**: The Neon Tokyo theme includes an Add-to-Home prompt. Serve over HTTPS (Render does this) for best mobile install behavior.
+- **Cost Control:**: Tune `SESSION_TOKEN_BUDGET` and `MAX_TOKENS_PER_CALL`. Use cheaper fallback models to reduce inference costs.
+- **Troubleshooting:**: If you see DB or model errors, consult the Troubleshooting and Supabase gotchas sections; paste exact errors into the issue for faster debugging.
+- **Contributing / Next Steps:**: Open a PR for UI polish, add tests for `council.py`, or switch the mock embedding to a real provider (I can assist with migration).
+
 Contact & next steps
 --------------------
 - If you'd like, I can:
