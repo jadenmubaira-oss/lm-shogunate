@@ -100,6 +100,30 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+# Neon Tokyo extra decorations & PWA install prompt handling
+if st.session_state.current_theme == "Neon Tokyo":
+    st.markdown("""
+    <style>
+        /* subtle floral pattern using radial gradients */
+        .stApp { background-image: radial-gradient(circle at 10% 10%, rgba(255,154,217,0.08) 0 2px, transparent 3px), radial-gradient(circle at 80% 30%, rgba(255,77,166,0.06) 0 3px, transparent 4px); }
+        .a2hs-btn { background: linear-gradient(90deg, #ff66b2, #ff4da6); color: white; padding: 10px 14px; border-radius: 12px; border: none; font-weight: bold; }
+    </style>
+    <script>
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        const btn = document.getElementById('a2hs-btn');
+        if (btn) btn.style.display = 'inline-block';
+    });
+    function showInstallPrompt() {
+        if (!deferredPrompt) return alert('Install prompt not available');
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(() => { deferredPrompt = null; document.getElementById('a2hs-btn').style.display='none'; });
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
 # ===== SIDEBAR =====
 with st.sidebar:
     st.title(f"{theme_data['personas']['Architect']['avatar']} LM SHOGUNATE")
@@ -142,6 +166,11 @@ with st.sidebar:
     
     st.divider()
     st.caption(f"🔐 Logged in | Theme: {st.session_state.current_theme}")
+
+    # Add-to-Home Screen (Neon Tokyo only) - button triggers the install prompt handled in injected JS
+    if st.session_state.current_theme == "Neon Tokyo":
+        st.markdown('<button id="a2hs-btn" class="a2hs-btn" style="display:none; width:100%;">➕ Add To Home Screen</button>', unsafe_allow_html=True)
+        st.markdown('<script>document.getElementById("a2hs-btn").addEventListener("click", showInstallPrompt);</script>', unsafe_allow_html=True)
 
 # ===== MAIN LAYOUT =====
 col1, col2 = st.columns([1.2, 1])

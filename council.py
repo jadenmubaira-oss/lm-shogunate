@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Generator, List, Dict
+import time
 from dotenv import load_dotenv
 from litellm import completion, embedding
 from supabase import create_client, Client
@@ -86,11 +87,11 @@ THEMES = {
         }
     },
     "Neon Tokyo": {
-        "bg": "#0d0221",
-        "primary": "#ff006e",
-        "secondary": "#8338ec",
-        "text": "#ffffff",
-        "accent": "#fb5607",
+        "bg": "#1b0036",
+        "primary": "#ff4da6",
+        "secondary": "#ff9ad9",
+        "text": "#fff0f6",
+        "accent": "#ff66b2",
         "personas": {
             "Architect": {
                 "name": "Synth-Lord",
@@ -165,6 +166,37 @@ def count_tokens(text: str) -> int:
     # Rough fallback estimate (approx 4 chars per token)
     return max(1, len(text) // 4)
 
+# ===== Budgeting & Model Fallbacks =====
+SESSION_TOKEN_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "5000"))
+MAX_TOKENS_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "3000"))
+
+ROLE_MODEL_PRIORITY = {
+    "Architect": ["MODEL_OPUS", "MODEL_GPT", "MODEL_SONNET"],
+    "Coder": ["MODEL_OPUS", "MODEL_GPT", "MODEL_SONNET"],
+    "Critic": ["MODEL_GROK", "MODEL_SONNET", "MODEL_GPT"],
+    "Wildcard": ["MODEL_GEMINI", "MODEL_SONNET", "MODEL_GPT"]
+}
+
+def resolve_model_for_role(role: str, budget_remaining: int) -> str:
+    """Return the best available model string for the role given remaining budget."""
+    priorities = ROLE_MODEL_PRIORITY.get(role, [])
+    if budget_remaining < 800:
+        cheap = os.getenv("MODEL_GEMINI") or os.getenv("MODEL_HAIKU")
+        if cheap:
+            return cheap
+
+    for env_key in priorities:
+        val = os.getenv(env_key)
+        if val:
+            return val
+
+    for k in ["MODEL_GPT", "MODEL_OPUS", "MODEL_GEMINI"]:
+        v = os.getenv(k)
+        if v:
+            return v
+
+    return None
+
 def call_model(model: str, messages: List[Dict], max_tokens: int = 2000) -> str:
     """Unified API caller with fallback"""
     try:
@@ -180,6 +212,36 @@ def call_model(model: str, messages: List[Dict], max_tokens: int = 2000) -> str:
         return response.choices[0].message.content
     except Exception as e:
         return f"⚠️ ERROR: {str(e)}"
+    
+def call_model(model: str, messages: List[Dict], max_tokens: int = 2000, role: str = None, budget_remaining: int = None) -> (str, int):
+    """Unified API caller with basic budgeting and fallback.
+
+    Returns tuple: (response_text, tokens_used_estimate)
+    """
+    try:
+        model_to_call = model
+        if model and model.startswith("MODEL_"):
+            model_to_call = os.getenv(model)
+
+        allowed_max = min(max_tokens, MAX_TOKENS_PER_CALL)
+        if budget_remaining is not None:
+            allowed_max = min(allowed_max, max(0, budget_remaining))
+
+        response = completion(
+            model=model_to_call,
+            messages=messages,
+            max_tokens=allowed_max,
+            temperature=0.7,
+            api_key=os.getenv("AZURE_API_KEY"),
+            api_base=os.getenv("AZURE_API_BASE"),
+            api_version=os.getenv("AZURE_API_VERSION")
+        )
+
+        content = response.choices[0].message.content
+        used = max(1, allowed_max)
+        return content, used
+    except Exception as e:
+        return f"⚠️ ERROR: {str(e)}", 0
 
 # ===== DATABASE FUNCTIONS =====
 def create_session(title: str, theme: str) -> str:
@@ -277,6 +339,8 @@ def run_council(
     # Use the fixed PERSONAS roster — UI theme only affects presentation in `app.py`
     personas = PERSONAS
     history = get_history(session_id)
+    # Per-session token budget (credits for this run)
+    budget_remaining = SESSION_TOKEN_BUDGET
     
     # Convert DB history to API format
     api_history = []
@@ -301,30 +365,38 @@ def run_council(
     # ===== PHASE 1: ARCHITECT PLANS =====
     architect = personas["Architect"]
     yield ("System", f"{architect['avatar']} Summoning {architect['name']}...", "system")
-    
-    plan = call_model(
-        get_model_name(architect["model"]),
+
+    arch_model = resolve_model_for_role("Architect", budget_remaining) or get_model_name(architect["model"])
+    plan_text, used = call_model(
+        arch_model,
         [{"role": "system", "content": architect["style"]}] + api_history,
-        max_tokens=1500
+        max_tokens=1500,
+        role="Architect",
+        budget_remaining=budget_remaining
     )
-    
-    save_message(session_id, "assistant", plan, architect["name"])
-    api_history.append({"role": "assistant", "content": f"[{architect['name']}]: {plan}"})
-    yield (architect["name"], plan, "architect")
+    budget_remaining -= used
+
+    save_message(session_id, "assistant", plan_text, architect["name"])
+    api_history.append({"role": "assistant", "content": f"[{architect['name']}]: {plan_text}"})
+    yield (architect["name"], plan_text, "architect")
     
     # ===== PHASE 2: CODER BUILDS =====
     coder = personas["Coder"]
     yield ("System", f"{coder['avatar']} {coder['name']} forging solution...", "system")
-    
-    code = call_model(
-        get_model_name(coder["model"]),
+
+    coder_model = resolve_model_for_role("Coder", budget_remaining) or get_model_name(coder["model"])
+    code_text, used = call_model(
+        coder_model,
         [{"role": "system", "content": coder["style"] + "\nOutput code in markdown blocks."}] + api_history,
-        max_tokens=2500
+        max_tokens=2500,
+        role="Coder",
+        budget_remaining=budget_remaining
     )
-    
-    save_message(session_id, "assistant", code, coder["name"])
-    api_history.append({"role": "assistant", "content": f"[{coder['name']}]: {code}"})
-    yield (coder["name"], code, "code")
+    budget_remaining -= used
+
+    save_message(session_id, "assistant", code_text, coder["name"])
+    api_history.append({"role": "assistant", "content": f"[{coder['name']}]: {code_text}"})
+    yield (coder["name"], code_text, "code")
     
     # ===== PHASE 3: CRITIC JUDGES (WITH AUTO-FIX LOOP) =====
     critic = personas["Critic"]
@@ -332,13 +404,17 @@ def run_council(
     
     for attempt in range(max_retries):
         yield ("System", f"{critic['avatar']} {critic['name']} examining...", "system")
-        
-        critique = call_model(
-            get_model_name(critic["model"]),
+        critic = personas["Critic"]
+        crit_model = resolve_model_for_role("Critic", budget_remaining) or get_model_name(critic["model"])
+        critique, used = call_model(
+            crit_model,
             [{"role": "system", "content": critic["style"] + "\nYou MUST end with either APPROVED or REJECTED."}] + api_history,
-            max_tokens=800
+            max_tokens=800,
+            role="Critic",
+            budget_remaining=budget_remaining
         )
-        
+        budget_remaining -= used
+
         save_message(session_id, "assistant", critique, critic["name"])
         api_history.append({"role": "assistant", "content": f"[{critic['name']}]: {critique}"})
         yield (critic["name"], critique, "critique")
@@ -356,26 +432,33 @@ def run_council(
             # Auto-fix
             fix_prompt = f"The previous code was rejected:\n{critique}\n\nFix the issues and rewrite the complete solution."
             api_history.append({"role": "user", "content": fix_prompt})
-            
-            code = call_model(
-                get_model_name(coder["model"]),
+
+            code_text, used = call_model(
+                resolve_model_for_role("Coder", budget_remaining) or get_model_name(coder["model"]),
                 [{"role": "system", "content": coder["style"]}] + api_history,
-                max_tokens=2500
+                max_tokens=2500,
+                role="Coder",
+                budget_remaining=budget_remaining
             )
-            
-            save_message(session_id, "assistant", code, f"{coder['name']} (Fixed)")
-            api_history.append({"role": "assistant", "content": f"[{coder['name']} REVISED]: {code}"})
-            yield (f"{coder['name']} (Revision {attempt + 2})", code, "code")
+            budget_remaining -= used
+
+            save_message(session_id, "assistant", code_text, f"{coder['name']} (Fixed)")
+            api_history.append({"role": "assistant", "content": f"[{coder['name']} REVISED]: {code_text}"})
+            yield (f"{coder['name']} (Revision {attempt + 2})", code_text, "code")
     
     # ===== PHASE 4: WILDCARD ALTERNATIVE =====
     wildcard = personas["Wildcard"]
     yield ("System", f"{wildcard['avatar']} {wildcard['name']} offering alternative...", "system")
-    
-    alternative = call_model(
-        get_model_name(wildcard["model"]),
+
+    wild_model = resolve_model_for_role("Wildcard", budget_remaining) or get_model_name(wildcard["model"])
+    alternative_text, used = call_model(
+        wild_model,
         [{"role": "system", "content": wildcard["style"] + "\nOffer a completely different approach."}] + api_history,
-        max_tokens=1500
+        max_tokens=1500,
+        role="Wildcard",
+        budget_remaining=budget_remaining
     )
-    
-    save_message(session_id, "assistant", alternative, wildcard["name"])
-    yield (wildcard["name"], alternative, "wildcard")
+    budget_remaining -= used
+
+    save_message(session_id, "assistant", alternative_text, wildcard["name"])
+    yield (wildcard["name"], alternative_text, "wildcard")

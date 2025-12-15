@@ -152,6 +152,20 @@ Security & rotating keys
 - Never commit `.env` to the repo. Use Render environment variables.
 - If a key has been exposed, rotate it in the provider's console immediately and update Render.
 
+PWA & Mobile install
+---------------------
+- The app includes a lightweight Add-to-Home-Screen prompt for modern mobile browsers when using the Neon Tokyo theme. To enable the browser install prompt you may also need to serve the app over HTTPS (Render does this) and follow standard PWA behavior.
+
+Token budgeting & cost controls
+------------------------------
+- Per-session token budget is enforced via `SESSION_TOKEN_BUDGET` (env, default 5000 tokens). You can tune `MAX_TOKENS_PER_CALL` (default 3000) to cap per-call token usage.
+- The system will preferentially use the high-quality `MODEL_OPUS` for `Architect` and `Coder` roles; if budget is low the orchestrator will fall back to cheaper models (e.g., `MODEL_GEMINI` or `MODEL_HAIKU`) automatically.
+
+Environment variable reference (add these to Render):
+- `SESSION_TOKEN_BUDGET` — integer, total token budget per session (default 5000)
+- `MAX_TOKENS_PER_CALL` — integer, per-call hard cap (default 3000)
+- `MODEL_EMBEDDING` — embedding deployment name (required for real embeddings)
+
 Cost & budgeting
 -----------------
 - Hosting: Render free tier possible; Supabase free tier possible.
