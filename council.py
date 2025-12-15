@@ -1,13 +1,12 @@
 """
 LM SHOGUNATE: The Pinnacle Multi-Agent AI Council
 ==================================================
-Direct API calls to Azure AI Foundry + Gemini
+Direct API calls to Azure AI Foundry + Gemini with debug logging
 """
 
 import os
 import hashlib
 import time
-import json
 from typing import Generator, List, Dict, Optional, Tuple
 from dotenv import load_dotenv
 import requests
@@ -18,6 +17,7 @@ load_dotenv()
 # ===== CONFIGURATION =====
 SESSION_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "20000"))
 MAX_PER_CALL = int(os.getenv("MAX_TOKENS_PER_CALL", "10000"))
+DEBUG = True  # Set to True to see detailed error messages
 
 # ===== LAZY SUPABASE =====
 _supabase_client = None
@@ -41,43 +41,36 @@ AGENTS = {
         "name": "天皇 (The Emperor)",
         "model_key": "MODEL_OPUS",
         "avatar": "👑",
-        "tier": 1,
-        "style": """You are THE EMPEROR, the Supreme Oracle. You have received all council deliberations.
-SYNTHESIZE the best elements, RESOLVE disputes, and DELIVER the FINAL answer. Your word is LAW."""
+        "style": """You are THE EMPEROR, the Supreme Oracle. SYNTHESIZE the best elements and DELIVER the FINAL answer."""
     },
     "Strategist": {
         "name": "軍師 (Strategist)",
         "model_key": "MODEL_SONNET",
         "avatar": "🎯",
-        "tier": 2,
-        "style": """You are THE STRATEGIST. ANALYZE the problem, DESIGN the architecture, CREATE a battle plan."""
+        "style": """You are THE STRATEGIST. ANALYZE the problem and CREATE a battle plan."""
     },
     "Executor": {
         "name": "刀匠 (Executor)",
         "model_key": "MODEL_GPT",
         "avatar": "⚔️",
-        "tier": 2,
         "style": """You are THE EXECUTOR. Write COMPLETE, PRODUCTION-READY code in markdown blocks."""
     },
     "Inquisitor": {
         "name": "審問官 (Inquisitor)",
         "model_key": "MODEL_GROK",
         "avatar": "🔍",
-        "tier": 2,
         "style": """You are THE INQUISITOR. Find EVERY flaw. End with "VERDICT: APPROVED" or "VERDICT: REJECTED"."""
     },
     "Sage": {
         "name": "賢者 (Sage)",
         "model_key": "MODEL_KIMI",
         "avatar": "📿",
-        "tier": 2,
-        "style": """You are THE SAGE. Provide deep logical reasoning and analysis."""
+        "style": """You are THE SAGE. Provide deep logical reasoning."""
     },
     "Innovator": {
         "name": "発明家 (Innovator)",
         "model_key": "MODEL_GEMINI",
         "avatar": "💡",
-        "tier": 2,
         "style": """You are THE INNOVATOR. Propose UNCONVENTIONAL alternatives."""
     },
 }
@@ -103,45 +96,46 @@ THEMES = {
 # ===== DIRECT API CALLS =====
 
 def call_azure_ai_foundry(deployment_name: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """
-    Call Azure AI Foundry API directly.
-    Tries multiple endpoint formats for compatibility.
-    """
-    api_key = os.getenv("AZURE_API_KEY")
+    """Call Azure AI Foundry API - tries multiple endpoint formats."""
+    api_key = os.getenv("AZURE_API_KEY", "")
     api_base = os.getenv("AZURE_API_BASE", "").rstrip("/")
+    api_version = os.getenv("AZURE_API_VERSION", "2024-10-21")
     
     if not api_key or not api_base:
-        return "⚠️ Azure API not configured", 0
+        return "⚠️ Azure: API_KEY or API_BASE not set", 0
     
-    headers = {
-        "Content-Type": "application/json",
-        "api-key": api_key,  # Azure uses api-key header
-        "Authorization": f"Bearer {api_key}"  # Also try Bearer token
-    }
-    
-    payload = {
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": 0.7
-    }
-    
-    # Try different endpoint formats
-    endpoints_to_try = [
-        # Format 1: Model in URL path (Azure AI Foundry standard)
-        (f"{api_base}/openai/deployments/{deployment_name}/chat/completions?api-version=2024-10-21", 
-         {**payload}),
-        # Format 2: Model in body (Azure AI Inference)
-        (f"{api_base}/models/chat/completions?api-version=2024-05-01-preview", 
-         {**payload, "model": deployment_name}),
-        # Format 3: Direct model endpoint
-        (f"{api_base}/chat/completions?api-version=2024-10-21", 
-         {**payload, "model": deployment_name}),
+    # All endpoint formats to try
+    endpoints = [
+        # Format 1: Azure OpenAI compatible (most common)
+        {
+            "url": f"{api_base}/openai/deployments/{deployment_name}/chat/completions?api-version={api_version}",
+            "headers": {"Content-Type": "application/json", "api-key": api_key},
+            "body": {"messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+        },
+        # Format 2: Azure AI Inference (models endpoint)
+        {
+            "url": f"{api_base}/models/chat/completions?api-version=2024-05-01-preview",
+            "headers": {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            "body": {"model": deployment_name, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+        },
+        # Format 3: Model-specific endpoint
+        {
+            "url": f"{api_base}/models/{deployment_name}/chat/completions?api-version=2024-05-01-preview",
+            "headers": {"Content-Type": "application/json", "api-key": api_key},
+            "body": {"messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+        },
+        # Format 4: Simple chat endpoint
+        {
+            "url": f"{api_base}/chat/completions?api-version={api_version}",
+            "headers": {"Content-Type": "application/json", "api-key": api_key},
+            "body": {"model": deployment_name, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+        },
     ]
     
-    last_error = ""
-    for url, body in endpoints_to_try:
+    errors = []
+    for i, ep in enumerate(endpoints):
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=120)
+            response = requests.post(ep["url"], headers=ep["headers"], json=ep["body"], timeout=120)
             
             if response.status_code == 200:
                 data = response.json()
@@ -149,24 +143,31 @@ def call_azure_ai_foundry(deployment_name: str, messages: List[Dict], max_tokens
                 tokens = data.get("usage", {}).get("total_tokens", max_tokens)
                 return content, tokens
             else:
-                last_error = f"{response.status_code}: {response.text[:200]}"
+                errors.append(f"[{i+1}] {response.status_code}: {response.text[:100]}")
         except Exception as e:
-            last_error = str(e)
+            errors.append(f"[{i+1}] Exception: {str(e)[:50]}")
     
-    return f"⚠️ Azure Error: {last_error}", 0
+    # Return detailed error for debugging
+    if DEBUG:
+        return f"⚠️ Azure failed all endpoints:\n" + "\n".join(errors[:2]), 0
+    return "⚠️ Azure: All endpoints failed", 0
 
 def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
     """Call Google Gemini API directly."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     
-    # Validate API key format (should start with AIza)
-    if not api_key or not api_key.startswith("AIza"):
-        return "⚠️ Gemini API key invalid (should start with AIza)", 0
+    if not api_key:
+        return "⚠️ Gemini: API key not set", 0
+    
+    # Check for common API key issues
+    if not api_key.startswith("AIza"):
+        return f"⚠️ Gemini: Invalid key format (starts with '{api_key[:4]}', should be 'AIza')", 0
     
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}"
+        # Use v1 stable endpoint
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
         
-        # Convert messages to Gemini format
+        # Convert to Gemini format
         contents = []
         for msg in messages:
             role = "user" if msg["role"] in ["user", "system"] else "model"
@@ -174,35 +175,34 @@ def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]
         
         payload = {
             "contents": contents,
-            "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "temperature": 0.7
-            }
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}
         }
         
         response = requests.post(url, json=payload, timeout=120)
         
         if response.status_code == 200:
             data = response.json()
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
-            return content, max_tokens
+            if "candidates" in data and len(data["candidates"]) > 0:
+                content = data["candidates"][0]["content"]["parts"][0]["text"]
+                return content, max_tokens
+            return "⚠️ Gemini: No candidates in response", 0
         else:
-            return f"⚠️ Gemini Error: {response.status_code}", 0
+            error = response.json().get("error", {}).get("message", response.text[:100])
+            return f"⚠️ Gemini {response.status_code}: {error}", 0
             
     except Exception as e:
         return f"⚠️ Gemini Exception: {str(e)}", 0
 
 def get_deployment_name(model_key: str) -> Optional[str]:
-    """Extract deployment name from MODEL_XXX env var."""
+    """Get deployment name from env var, stripping any prefixes."""
     value = os.getenv(model_key, "")
-    # Remove any prefix
     for prefix in ["azure_ai/", "azure/", "gemini/"]:
         if value.startswith(prefix):
             value = value[len(prefix):]
     return value if value else None
 
 def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Universal LLM caller - tries Azure first, then Gemini fallback."""
+    """Universal LLM caller - tries Azure, then falls back to Gemini."""
     agent = AGENTS.get(agent_key)
     if not agent:
         return "⚠️ Unknown agent", 0
@@ -210,41 +210,42 @@ def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tu
     model_key = agent["model_key"]
     deployment = get_deployment_name(model_key)
     
-    # For Innovator, prefer Gemini
-    if model_key == "MODEL_GEMINI":
-        result, tokens = call_gemini(messages, max_tokens)
-        if not result.startswith("⚠️"):
-            return result, tokens
+    # Collect all errors for debugging
+    all_errors = []
     
-    # Try Azure AI Foundry
+    # Try Azure with the configured model
     if deployment:
         result, tokens = call_azure_ai_foundry(deployment, messages, max_tokens)
         if not result.startswith("⚠️"):
             return result, tokens
+        all_errors.append(f"Primary ({deployment}): {result}")
     
     # Try other Azure models as fallback
-    fallback_models = ["claude-sonnet-4-5", "claude-opus-4-5", "gpt-5.2-chat", "grok-4-fast-reasoning"]
-    for fb in fallback_models:
+    for fb in ["claude-sonnet-4-5", "gpt-5.2-chat", "claude-opus-4-5"]:
         if fb != deployment:
             result, tokens = call_azure_ai_foundry(fb, messages, max_tokens)
             if not result.startswith("⚠️"):
                 return result, tokens
+            all_errors.append(f"Fallback ({fb}): {result[:50]}...")
     
-    # Last resort: Gemini
+    # Try Gemini
     result, tokens = call_gemini(messages, max_tokens)
     if not result.startswith("⚠️"):
         return result, tokens
+    all_errors.append(f"Gemini: {result}")
     
-    return f"⚠️ All models failed. Check API keys and endpoints.", 0
+    # Return combined error for debugging
+    if DEBUG:
+        return "⚠️ All models failed:\n" + all_errors[0] if all_errors else "No models configured", 0
+    return "⚠️ All models failed. Check API keys and endpoints.", 0
 
 # ===== TOOLS =====
 def web_search(query: str) -> str:
     try:
-        url = f"https://html.duckduckgo.com/html/?q={query}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(f"https://html.duckduckgo.com/html/?q={query}", 
+                               headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
-        results = [r.get_text()[:100] for r in soup.find_all('a', class_='result__a')[:5]]
+        results = [r.get_text()[:80] for r in soup.find_all('a', class_='result__a')[:5]]
         return "\n".join(f"{i+1}. {r}" for i, r in enumerate(results)) if results else "No results"
     except:
         return "Search failed"
@@ -254,8 +255,7 @@ def create_session(title: str, theme: str) -> str:
     try:
         db = get_supabase()
         if db:
-            result = db.table("chat_sessions").insert({"title": title, "theme": theme}).execute()
-            return result.data[0]["id"]
+            return db.table("chat_sessions").insert({"title": title, "theme": theme}).execute().data[0]["id"]
     except:
         pass
     return f"local-{hashlib.md5(f'{title}{time.time()}'.encode()).hexdigest()[:12]}"
@@ -317,20 +317,13 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     if "search:" in user_input.lower():
         query = user_input.split("search:")[-1].split("\n")[0].strip()
         yield ("System", f"🔍 Searching: {query}", "system")
-        user_input += f"\n\n[SEARCH RESULTS]:\n{web_search(query)}"
+        user_input += f"\n\n[SEARCH]:\n{web_search(query)}"
     
     # Build context
     history = get_history(session_id)
-    context = [{"role": m["role"], "content": m["content"][:800]} for m in history[-6:]]
-    
+    context = [{"role": m["role"], "content": m["content"][:600]} for m in history[-5:]]
     save_message(session_id, "user", user_input)
     context.append({"role": "user", "content": user_input})
-    
-    # Recall memories
-    memories = recall_memories(user_input)
-    if memories:
-        context.insert(0, {"role": "system", "content": f"[MEMORIES]: {' | '.join(m[:200] for m in memories)}"})
-        yield ("System", f"📜 Recalled {len(memories)} memories", "system")
     
     # PHASE 1: STRATEGIST
     yield ("System", "⚡ PHASE 1: Analyzing...", "system")
@@ -357,11 +350,8 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     # INNOVATOR
     innovator = AGENTS["Innovator"]
     yield ("System", f"{innovator['avatar']} {innovator['name']} exploring...", "system")
-    
     alt, tokens = call_llm("Innovator", [{"role": "system", "content": innovator["style"]}] + context, 1500)
-    budget -= tokens
     save_message(session_id, "assistant", alt, innovator["name"])
-    context.append({"role": "assistant", "content": alt})
     yield (innovator["name"], alt, "innovator")
     
     # PHASE 3: INQUISITOR
@@ -369,48 +359,28 @@ def run_council(theme: str, user_input: str, session_id: str) -> Generator[Tuple
     inquisitor = AGENTS["Inquisitor"]
     approved = False
     
-    for attempt in range(2):
-        yield ("System", f"{inquisitor['avatar']} {inquisitor['name']} examining... ({attempt+1}/2)", "system")
-        critique, tokens = call_llm("Inquisitor", [{"role": "system", "content": inquisitor["style"]}] + context, 1200)
-        budget -= tokens
-        save_message(session_id, "assistant", critique, inquisitor["name"])
-        context.append({"role": "assistant", "content": critique})
-        yield (inquisitor["name"], critique, "critique")
-        
-        if "APPROVED" in critique.upper():
-            approved = True
-            yield ("System", "✅ Approved", "system")
-            break
-        elif "REJECTED" in critique.upper() and attempt == 0:
-            yield ("System", "🔧 Auto-fixing...", "system")
-            context.append({"role": "user", "content": f"Fix these issues: {critique}"})
-            code, tokens = call_llm("Executor", [{"role": "system", "content": executor["style"]}] + context, 4000)
-            budget -= tokens
-            save_message(session_id, "assistant", code, f"{executor['name']} (Fixed)")
-            context.append({"role": "assistant", "content": code})
-            yield (f"{executor['name']} (Fixed)", code, "code")
+    critique, tokens = call_llm("Inquisitor", [{"role": "system", "content": inquisitor["style"]}] + context, 1200)
+    save_message(session_id, "assistant", critique, inquisitor["name"])
+    yield (inquisitor["name"], critique, "critique")
+    
+    if "APPROVED" in critique.upper():
+        approved = True
+        yield ("System", "✅ Approved", "system")
     
     # PHASE 4: EMPEROR
     yield ("System", "👑 PHASE 4: Final Judgment...", "system")
     emperor = AGENTS["Emperor"]
     yield ("System", f"{emperor['avatar']} {emperor['name']} synthesizing...", "system")
     
-    emperor_prompt = f"""ORIGINAL: {user_input[:400]}
-PLAN: {plan[:600]}
-CODE: {code[:1200]}
-CRITIQUE: {critique[:400]}
-ALTERNATIVE: {alt[:400]}
-{"APPROVED" if approved else "Had concerns"}
-
-Deliver the FINAL answer."""
-    
-    verdict, tokens = call_llm("Emperor", [{"role": "system", "content": emperor["style"]}, {"role": "user", "content": emperor_prompt}], 4000)
-    budget -= tokens
+    verdict, tokens = call_llm("Emperor", [
+        {"role": "system", "content": emperor["style"]},
+        {"role": "user", "content": f"PLAN: {plan[:500]}\nCODE: {code[:1000]}\nCRITIQUE: {critique[:300]}\n\nDeliver the FINAL answer."}
+    ], 4000)
     save_message(session_id, "assistant", verdict, emperor["name"])
     yield (emperor["name"], verdict, "emperor")
     
     if approved:
-        save_memory(f"SUCCESS: {user_input[:100]} -> {verdict[:300]}")
-        yield ("System", "📖 Archived to memory", "system")
+        save_memory(f"SUCCESS: {user_input[:100]} -> {verdict[:200]}")
+        yield ("System", "📖 Archived", "system")
     
-    yield ("System", f"🏯 Complete. Budget: {budget}/{SESSION_BUDGET}", "system")
+    yield ("System", f"🏯 Complete.", "system")
