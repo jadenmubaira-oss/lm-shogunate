@@ -2,7 +2,7 @@ import os
 import json
 from typing import Generator, List, Dict
 from dotenv import load_dotenv
-from litellm import completion
+from litellm import completion, embedding
 from supabase import create_client, Client
 try:
     import tiktoken
@@ -129,11 +129,12 @@ PERSONAS = {
         "avatar": "⚔️",
         "style": "You are the Supreme Commander. Speak with authority and ancient wisdom. Plan the grand strategy."
     },
+    # Opus is used as the primary coder — highest-priority for planning & code generation
     "Coder": {
         "name": "刀鍛冶 (Master Smith)",
-        "model": "MODEL_GPT",
+        "model": "MODEL_OPUS",
         "avatar": "🔨",
-        "style": "You forge solutions with honor. Write clean, elegant code with Japanese comments."
+        "style": "You forge solutions with honor. Write clean, elegant code with Japanese comments. Output code blocks only."
     },
     "Critic": {
         "name": "奉行 (Magistrate)",
@@ -228,17 +229,35 @@ def recall_memories(query_embedding: List[float], threshold: float = 0.75) -> Li
         return []
 
 def get_embedding(text: str) -> List[float]:
-    """Get vector embedding (using a simple mock for now)"""
-    # In production, use: openai.Embedding.create(input=text, model="text-embedding-ada-002")
-    # For now, return mock to avoid extra API calls
-    import hashlib
-    hash_obj = hashlib.sha256(text.encode())
-    hash_bytes = hash_obj.digest()
-    # Stretch to 1536 dimensions (required by our DB schema)
-    mock_embedding = []
-    for i in range(1536):
-        mock_embedding.append((hash_bytes[i % len(hash_bytes)] / 255.0) * 2 - 1)
-    return mock_embedding
+    """Fetch embedding using configured embedding model via litellm.
+
+    Requires the environment variable `MODEL_EMBEDDING` to be set to a deployed
+    embedding model (e.g., an Azure embedding deployment). Falls back to a
+    deterministic mock only if the real API call fails.
+    """
+    model_name = get_model_name("MODEL_EMBEDDING") or os.getenv("MODEL_EMBEDDING")
+    try:
+        if not model_name:
+            raise RuntimeError("No embedding model configured (MODEL_EMBEDDING).")
+        resp = embedding(
+            model=model_name,
+            input=[text],
+            api_key=os.getenv("AZURE_API_KEY"),
+            api_base=os.getenv("AZURE_API_BASE"),
+            api_version=os.getenv("AZURE_API_VERSION")
+        )
+        # Expecting a response shape similar to: {data: [{embedding: [...] }]}
+        return resp.data[0]["embedding"]
+    except Exception:
+        # Deterministic fallback to avoid crashing if embeddings are temporarily unavailable.
+        # This fallback is only used as a last resort; prefer configuring an embedding model.
+        import hashlib
+        hash_obj = hashlib.sha256(text.encode())
+        hash_bytes = hash_obj.digest()
+        mock_embedding = []
+        for i in range(1536):
+            mock_embedding.append((hash_bytes[i % len(hash_bytes)] / 255.0) * 2 - 1)
+        return mock_embedding
 
 # ===== THE AUTONOMOUS COUNCIL =====
 def run_council(

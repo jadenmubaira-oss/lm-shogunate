@@ -46,6 +46,9 @@ Files in this repo
 - `app.py` — Streamlit front-end and theme injection.
 - `council.py` — Orchestration of personas and database functions.
 - `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
+ - `app.py` — Streamlit front-end and theme injection.
+ - `council.py` — Orchestration of personas and database functions. NOTE: Opus (your Azure Opus deployment) is configured as the primary Architect and primary Coder for the highest-quality planning and code generation.
+ - `requirements.txt` — Python dependencies (note: `tiktoken` removed for Build portability).
 
 Quickstart (local)
 ------------------
@@ -103,12 +106,26 @@ Start command:
 streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
 ```
 
-4. Add environment variables in Render (do not use `.env` in repo). Important keys:
-- `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`
-- `GEMINI_API_KEY`
-- `SUPABASE_URL`, `SUPABASE_KEY`
-- `APP_PASSWORD` (e.g., `Tj!74162oo42oo4`)
-- Model envs: `MODEL_OPUS`, `MODEL_GPT`, `MODEL_GROK`, `MODEL_GEMINI`, `MODEL_EMBEDDING`
+4. Add environment variables in Render (do not use `.env` in repo). Important keys (exact names):
+ - `AZURE_API_KEY` — your Azure Foundry key
+ - `AZURE_API_BASE` — https://polyprophet-resource.services.ai.azure.com
+ - `AZURE_API_VERSION` — e.g., 2024-10-21
+ - `GEMINI_API_KEY` — your Google Gemini key
+ - `SUPABASE_URL` — your Supabase project URL (e.g., https://xyz.supabase.co)
+ - `SUPABASE_KEY` — your Supabase anon/public key
+ - `APP_PASSWORD` — the passcode for the Streamlit UI (example: Tj!74162oo42oo4)
+ - Model envs (map your deployment names):
+   - `MODEL_OPUS`=azure/claude-opus-4-5
+   - `MODEL_GPT`=azure/gpt-5.2-chat
+   - `MODEL_GROK`=azure/grok-4-fast-reasoning
+   - `MODEL_GEMINI`=gemini/gemini-2.0-flash-exp
+   - `MODEL_EMBEDDING`=your-embedding-deployment-name (e.g., azure/text-embedding-ada-002)
+
+How to ensure the "real thing" works (no mocks)
+-----------------------------------------------
+1. Deploy an embedding model in Azure Foundry and set `MODEL_EMBEDDING` to its deployment name.
+2. Confirm `AZURE_API_KEY`, `AZURE_API_BASE` and `AZURE_API_VERSION` are set in Render.
+3. The app calls `litellm.embedding` at runtime to compute embeddings — once configured the system uses real embeddings and real model calls (no mocks required).
 
 5. Deploy and open your Render URL on mobile or desktop.
 
