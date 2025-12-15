@@ -23,6 +23,26 @@ except Exception:
 
 from supabase import create_client, Client
 try:
+    import httpx as _httpx
+    def _wrap_init(orig):
+        def _init(self, *args, proxy=None, **kwargs):
+            if proxy is not None:
+                kwargs.setdefault("proxies", proxy)
+            return orig(self, *args, **kwargs)
+        return _init
+
+    for _name in ("Client", "SyncClient", "AsyncClient"):
+        _cls = getattr(_httpx, _name, None)
+        if _cls is None:
+            continue
+        try:
+            _orig = _cls.__init__
+            _cls.__init__ = _wrap_init(_orig)
+        except Exception:
+            pass
+except Exception:
+    pass
+try:
     import tiktoken
 except Exception:
     tiktoken = None
