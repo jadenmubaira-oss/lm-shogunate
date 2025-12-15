@@ -41,36 +41,42 @@ AGENTS = {
         "name": "天皇 (The Emperor)",
         "model_key": "MODEL_OPUS",
         "avatar": "👑",
+        "tier": 1,
         "style": """You are THE EMPEROR, the Supreme Oracle. SYNTHESIZE the best elements and DELIVER the FINAL answer."""
     },
     "Strategist": {
         "name": "軍師 (Strategist)",
         "model_key": "MODEL_SONNET",
         "avatar": "🎯",
+        "tier": 2,
         "style": """You are THE STRATEGIST. ANALYZE the problem and CREATE a battle plan."""
     },
     "Executor": {
         "name": "刀匠 (Executor)",
         "model_key": "MODEL_GPT",
         "avatar": "⚔️",
+        "tier": 2,
         "style": """You are THE EXECUTOR. Write COMPLETE, PRODUCTION-READY code in markdown blocks."""
     },
     "Inquisitor": {
         "name": "審問官 (Inquisitor)",
         "model_key": "MODEL_GROK",
         "avatar": "🔍",
+        "tier": 2,
         "style": """You are THE INQUISITOR. Find EVERY flaw. End with "VERDICT: APPROVED" or "VERDICT: REJECTED"."""
     },
     "Sage": {
         "name": "賢者 (Sage)",
         "model_key": "MODEL_KIMI",
         "avatar": "📿",
+        "tier": 2,
         "style": """You are THE SAGE. Provide deep logical reasoning."""
     },
     "Innovator": {
         "name": "発明家 (Innovator)",
         "model_key": "MODEL_GEMINI",
         "avatar": "💡",
+        "tier": 2,
         "style": """You are THE INNOVATOR. Propose UNCONVENTIONAL alternatives."""
     },
 }
