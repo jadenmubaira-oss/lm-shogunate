@@ -1,7 +1,7 @@
 """
 LM SHOGUNATE: The Pinnacle Multi-Agent AI Council
 ==================================================
-Direct API calls to Azure AI Foundry + Gemini
+Uses Azure AI Foundry Anthropic Messages API + Gemini
 """
 
 import os
@@ -98,74 +98,74 @@ THEMES = {
     }
 }
 
-# ===== DIRECT API CALLS =====
+# ===== AZURE ANTHROPIC API (from your screenshots) =====
 
-def call_azure_ai_foundry(deployment_name: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Call Azure AI Foundry API with multiple endpoint formats."""
+def call_azure_anthropic(model_name: str, system_prompt: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
+    """
+    Call Azure AI Foundry Anthropic API.
+    Endpoint: https://polyprophet-resource.openai.azure.com/anthropic/v1/messages
+    Uses Anthropic Messages API format.
+    """
     api_key = os.getenv("AZURE_API_KEY", "")
-    api_base = os.getenv("AZURE_API_BASE", "").rstrip("/")
-    api_version = os.getenv("AZURE_API_VERSION", "2024-10-21")
     
-    if not api_key or not api_base:
-        return "⚠️ Azure: API_KEY or API_BASE not set", 0
+    if not api_key:
+        return "⚠️ Azure API key not set", 0
     
-    # Determine token parameter based on model type
-    # GPT models need max_completion_tokens, others use max_tokens
-    is_gpt = "gpt" in deployment_name.lower() or "o1" in deployment_name.lower()
-    token_param = "max_completion_tokens" if is_gpt else "max_tokens"
+    # The endpoint from your Azure screenshots
+    url = "https://polyprophet-resource.openai.azure.com/anthropic/v1/messages"
     
-    # All endpoint formats to try
-    endpoints = [
-        # Format 1: Azure OpenAI compatible (for Azure OpenAI deployments)
-        {
-            "url": f"{api_base}/openai/deployments/{deployment_name}/chat/completions?api-version={api_version}",
-            "headers": {"Content-Type": "application/json", "api-key": api_key},
-            "body": {"messages": messages, token_param: max_tokens, "temperature": 0.7}
-        },
-        # Format 2: Azure AI Model Inference (model in path)
-        {
-            "url": f"{api_base}/models/{deployment_name}/chat/completions",
-            "headers": {"Content-Type": "application/json", "api-key": api_key, "Authorization": f"Bearer {api_key}"},
-            "body": {"messages": messages, token_param: max_tokens, "temperature": 0.7}
-        },
-        # Format 3: Azure AI Inference (model in body)
-        {
-            "url": f"{api_base}/v1/chat/completions",
-            "headers": {"Content-Type": "application/json", "api-key": api_key},
-            "body": {"model": deployment_name, "messages": messages, token_param: max_tokens, "temperature": 0.7}
-        },
-    ]
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "anthropic-version": "2023-06-01"
+    }
     
-    errors = []
-    for i, ep in enumerate(endpoints):
-        try:
-            response = requests.post(ep["url"], headers=ep["headers"], json=ep["body"], timeout=120)
+    # Convert messages to Anthropic format (filter out system, keep user/assistant)
+    anthropic_messages = []
+    for msg in messages:
+        if msg["role"] in ["user", "assistant"]:
+            anthropic_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+    
+    # Ensure we have at least one message
+    if not anthropic_messages:
+        anthropic_messages = [{"role": "user", "content": "Hello"}]
+    
+    payload = {
+        "model": model_name,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+        "system": system_prompt,
+        "messages": anthropic_messages
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Anthropic format: {"content": [{"type": "text", "text": "..."}]}
+            content = data.get("content", [{}])[0].get("text", "")
+            tokens = data.get("usage", {}).get("output_tokens", max_tokens)
+            return content, tokens
+        else:
+            return f"⚠️ Azure {response.status_code}: {response.text[:150]}", 0
             
-            if response.status_code == 200:
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-                tokens = data.get("usage", {}).get("total_tokens", max_tokens)
-                return content, tokens
-            else:
-                errors.append(f"[{i+1}] {response.status_code}: {response.text[:80]}")
-        except Exception as e:
-            errors.append(f"[{i+1}] {str(e)[:50]}")
-    
-    return f"⚠️ Azure failed: " + errors[0] if errors else "No endpoints tried", 0
+    except Exception as e:
+        return f"⚠️ Azure Exception: {str(e)}", 0
 
 def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Call Google Gemini API directly."""
+    """Call Google Gemini API."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     
     if not api_key:
         return "⚠️ Gemini: API key not set", 0
     if not api_key.startswith("AIza"):
-        return f"⚠️ Gemini: Invalid key (starts with '{api_key[:4]}', need 'AIza')", 0
+        return f"⚠️ Gemini: Invalid key format", 0
     
-    # Try multiple model versions
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
-    
-    for model_name in models_to_try:
+    for model_name in ["gemini-1.5-flash", "gemini-1.5-pro"]:
         try:
             url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={api_key}"
             
@@ -184,12 +184,11 @@ def call_gemini(messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]
             if response.status_code == 200:
                 data = response.json()
                 if "candidates" in data and len(data["candidates"]) > 0:
-                    content = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return content, max_tokens
+                    return data["candidates"][0]["content"]["parts"][0]["text"], max_tokens
         except:
             continue
     
-    return "⚠️ Gemini: All model versions failed", 0
+    return "⚠️ Gemini: All models failed", 0
 
 def get_deployment_name(model_key: str) -> Optional[str]:
     value = os.getenv(model_key, "")
@@ -199,30 +198,40 @@ def get_deployment_name(model_key: str) -> Optional[str]:
     return value if value else None
 
 def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tuple[str, int]:
-    """Universal LLM caller - tries Azure, then Gemini."""
+    """Universal LLM caller."""
     agent = AGENTS.get(agent_key)
     if not agent:
         return "⚠️ Unknown agent", 0
     
     model_key = agent["model_key"]
     deployment = get_deployment_name(model_key)
+    system_prompt = agent.get("style", "You are a helpful assistant.")
     
-    # For Innovator, try Gemini first
+    # Extract system from messages if present
+    user_messages = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_prompt = msg["content"]
+        else:
+            user_messages.append(msg)
+    
+    # For Gemini agent, try Gemini first
     if model_key == "MODEL_GEMINI":
         result, tokens = call_gemini(messages, max_tokens)
         if not result.startswith("⚠️"):
             return result, tokens
     
-    # Try Azure
+    # Try Azure Anthropic API with configured model
     if deployment:
-        result, tokens = call_azure_ai_foundry(deployment, messages, max_tokens)
+        result, tokens = call_azure_anthropic(deployment, system_prompt, user_messages, max_tokens)
         if not result.startswith("⚠️"):
             return result, tokens
     
-    # Try other Azure models
-    for fb in ["claude-sonnet-4-5", "gpt-5.2-chat", "claude-opus-4-5", "grok-4-fast-reasoning"]:
+    # Try fallback models on Azure
+    fallback_models = ["claude-sonnet-4-5", "claude-opus-4-5", "gpt-5.2-chat"]
+    for fb in fallback_models:
         if fb != deployment:
-            result, tokens = call_azure_ai_foundry(fb, messages, max_tokens)
+            result, tokens = call_azure_anthropic(fb, system_prompt, user_messages, max_tokens)
             if not result.startswith("⚠️"):
                 return result, tokens
     
@@ -231,7 +240,7 @@ def call_llm(agent_key: str, messages: List[Dict], max_tokens: int = 3000) -> Tu
     if not result.startswith("⚠️"):
         return result, tokens
     
-    return "⚠️ All models failed. Check Azure deployment names and API keys.", 0
+    return "⚠️ All models failed. Check API keys.", 0
 
 # ===== TOOLS =====
 def web_search(query: str) -> str:
