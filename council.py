@@ -197,22 +197,6 @@ def resolve_model_for_role(role: str, budget_remaining: int) -> str:
 
     return None
 
-def call_model(model: str, messages: List[Dict], max_tokens: int = 2000) -> str:
-    """Unified API caller with fallback"""
-    try:
-        response = completion(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.7,
-            api_key=os.getenv("AZURE_API_KEY"),
-            api_base=os.getenv("AZURE_API_BASE"),
-            api_version=os.getenv("AZURE_API_VERSION")
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"⚠️ ERROR: {str(e)}"
-    
 def call_model(model: str, messages: List[Dict], max_tokens: int = 2000, role: str = None, budget_remaining: int = None) -> (str, int):
     """Unified API caller with basic budgeting and fallback.
 
