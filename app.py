@@ -220,22 +220,3 @@ with col2:
         file_name="council_solution.py",
         mime="text/x-python"
     )
-```
-
----
-
-## **PHASE 6: DEPLOYMENT**
-
-### Step 6.1: Create Requirements File
-Create **`requirements.txt`**:
-```
-streamlit==1.31.0
-litellm==1.30.0
-python-dotenv==1.0.0
-supabase==2.3.0
-openai==1.12.0
-tiktoken==0.6.0
-tenacity==8.2.3
-requests==2.31.0
-beautifulsoup4==4.12.3
-PyPDF2==3.0.1git push
