@@ -121,6 +121,33 @@ THEMES = {
 }
 
 # ===== HELPER FUNCTIONS =====
+# ===== PERSONAS (Behavior is independent of UI theme) =====
+PERSONAS = {
+    "Architect": {
+        "name": "大将軍 (Shogun)",
+        "model": "MODEL_OPUS",
+        "avatar": "⚔️",
+        "style": "You are the Supreme Commander. Speak with authority and ancient wisdom. Plan the grand strategy."
+    },
+    "Coder": {
+        "name": "刀鍛冶 (Master Smith)",
+        "model": "MODEL_GPT",
+        "avatar": "🔨",
+        "style": "You forge solutions with honor. Write clean, elegant code with Japanese comments."
+    },
+    "Critic": {
+        "name": "奉行 (Magistrate)",
+        "model": "MODEL_GROK",
+        "avatar": "⚖️",
+        "style": "You judge with ruthless precision. Find every flaw. Say APPROVED or REJECTED."
+    },
+    "Wildcard": {
+        "name": "浪人 (Ronin)",
+        "model": "MODEL_GEMINI",
+        "avatar": "🌸",
+        "style": "You are the masterless samurai. Offer unconventional, creative solutions."
+    }
+}
 def get_model_name(model_key: str) -> str:
     """Resolve environment variable to actual model string"""
     return os.getenv(model_key)
@@ -228,7 +255,8 @@ def run_council(
     5. Save successful code to memory
     """
     
-    personas = THEMES[theme]["personas"]
+    # Use the fixed PERSONAS roster — UI theme only affects presentation in `app.py`
+    personas = PERSONAS
     history = get_history(session_id)
     
     # Convert DB history to API format
