@@ -1050,7 +1050,7 @@ def get_sessions(user_id: str = None) -> List[Dict]:
     return sessions
 
 def save_message(session_id: str, role: str, content: str, agent_name: str = None):
-    """Save message to Supabase, with local fallback."""
+    """Save message to Supabase with retry logic and local fallback."""
     if not session_id or not content:
         return
     
@@ -1062,18 +1062,45 @@ def save_message(session_id: str, role: str, content: str, agent_name: str = Non
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    try:
-        db = get_supabase()
-        if db:
-            db.table("messages").insert(msg_data).execute()
-            return  # Success - saved to Supabase
-    except Exception as e:
-        print(f"[save_message ERROR] {str(e)}")
+    # Retry up to 3 times
+    for attempt in range(3):
+        try:
+            db = get_supabase()
+            if db:
+                db.table("messages").insert(msg_data).execute()
+                # Success! Also try to sync any pending local messages
+                _sync_local_messages(session_id)
+                return
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(0.5 * (attempt + 1))  # Exponential backoff: 0.5s, 1s
+            else:
+                print(f"[save_message ERROR after 3 attempts] {str(e)}")
     
-    # Fallback: save to local memory
+    # All retries failed - save to local memory
     if session_id not in _local_messages:
         _local_messages[session_id] = []
     _local_messages[session_id].append(msg_data)
+
+
+def _sync_local_messages(session_id: str):
+    """Try to sync local messages to Supabase when connection is restored."""
+    if session_id not in _local_messages or not _local_messages[session_id]:
+        return
+    
+    try:
+        db = get_supabase()
+        if db:
+            # Try to insert all pending local messages
+            for msg in _local_messages[session_id]:
+                try:
+                    db.table("messages").insert(msg).execute()
+                except:
+                    pass  # Individual message failed, continue
+            # Clear synced messages
+            _local_messages[session_id] = []
+    except:
+        pass  # Sync failed, will try again later
 
 
 def get_history(session_id: str) -> List[Dict]:
