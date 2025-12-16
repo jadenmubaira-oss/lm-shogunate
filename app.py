@@ -8,8 +8,8 @@ Features:
 • Session persistence (no duplicate chats)
 • Theme persistence
 • Token tracking
-• Image display
-• Streamlined 3-agent council
+• Image + Video generation
+• 4-agent council with parallel execution
 """
 
 import streamlit as st
@@ -65,9 +65,9 @@ if not check_auth():
     </style>
     <div class="login-title">🏯</div>
     <div class="login-subtitle">LM SHOGUNATE</div>
-    <p class="login-desc">The Ultimate Multi-Agent AI Council</p>
+    <p class="login-desc">The Ultimate 4-Agent AI Council</p>
     <p class="login-desc" style="font-size: 0.9em; color: #666;">
-        Claude Opus 4.5 • Claude Sonnet 4.5 • GPT-5.2
+        Claude Opus 4.5 • Claude Sonnet 4.5 • GPT-5.2 • DeepSeek V3.2
     </p>
     """, unsafe_allow_html=True)
     
@@ -333,7 +333,8 @@ with col1:
                 if agent_name:
                     agent_class = "emperor" if "Emperor" in agent_name else \
                                  "strategist" if "Strategist" in agent_name else \
-                                 "executor" if "Executor" in agent_name else ""
+                                 "executor" if "Executor" in agent_name else \
+                                 "sage" if "Sage" in agent_name else ""
                     st.markdown(f'<span class="agent-badge agent-{agent_class}">{agent_name}</span>', unsafe_allow_html=True)
                 
                 st.markdown(msg["content"])
