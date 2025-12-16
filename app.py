@@ -403,21 +403,14 @@ async function captureScreen() {
 params = st.query_params
 
 def get_current_user():
+    """Get current user from session_state only (not URL - security fix)."""
     if "user" in st.session_state:
         return st.session_state.user
-    token = params.get("token")
-    if token:
-        user = council.verify_token(token)
-        if user:
-            st.session_state.user = user
-            return user
     return None
 
 def logout():
     if "user" in st.session_state:
         del st.session_state.user
-    if "token" in st.query_params:
-        del st.query_params["token"]
     if "session_id" in st.session_state:
         del st.session_state.session_id
     st.rerun()
@@ -469,7 +462,8 @@ if not user:
                     user_data, error = council.login_user(email, password)
                     if user_data:
                         st.session_state.user = user_data
-                        st.query_params["token"] = user_data["token"]
+                        # SECURITY FIX: Don't store token in URL - it's shareable!
+                        # Token stays in session_state only (server-side)
                         st.success("✅ Welcome back!")
                         st.rerun()
                     else:
@@ -629,27 +623,40 @@ with col1:
     user_input = st.chat_input("Ask anything... (image: prompt, video: prompt, search: query)")
     
     if user_input:
+        # Handle uploaded file
+        uploaded_image_b64 = None
         if uploaded:
             try:
                 if uploaded.type == "application/pdf":
                     from PyPDF2 import PdfReader
                     file_text = "\n".join([p.extract_text() or "" for p in PdfReader(uploaded).pages])
+                    user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:8000]}\n```"
                 elif uploaded.type.startswith("image/"):
-                    file_text = f"[IMAGE: {uploaded.name}]"
+                    # FIXED: Encode image as base64 so AI can SEE it!
+                    import base64
+                    uploaded.seek(0)
+                    image_bytes = uploaded.read()
+                    uploaded_image_b64 = f"data:{uploaded.type};base64,{base64.b64encode(image_bytes).decode()}"
+                    user_input += f"\n\n[IMAGE ATTACHED: {uploaded.name}]"
                 else:
                     file_text = uploaded.read().decode('utf-8', errors='ignore')
-                user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:8000]}\n```"
+                    user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:8000]}\n```"
             except Exception as e:
                 user_input += f"\n\n[FILE ERROR: {str(e)}]"
         
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_input)
         
-        screenshot = st.session_state.get("screenshot")
+        # Use uploaded image OR screenshot (prefer uploaded image)
+        screenshot = uploaded_image_b64 or st.session_state.get("screenshot")
         st.session_state.screenshot = None
         
         with st.status("⚡ Council processing...", expanded=True) as status:
             try:
+                final_answer = None
+                final_agent = None
+                intermediate_responses = []
+                
                 for agent, content, msg_type in council.run_council("Neon", user_input, st.session_state.session_id, user_id, screenshot):
                     if msg_type == "system":
                         st.markdown(f"🔔 {content}")
@@ -658,19 +665,43 @@ with col1:
                     elif msg_type == "video":
                         st.video(content)
                     else:
-                        avatar = next((a["avatar"] for a in council.AGENTS.values() if a["name"] in str(agent)), "🤖")
-                        with st.chat_message("assistant", avatar=avatar):
-                            cls = "emperor" if "Emperor" in agent else "strategist" if "Strategist" in agent else "executor" if "Executor" in agent else "sage" if "Sage" in agent else ""
-                            st.markdown(f'<span class="agent-badge agent-{cls}">{agent}</span>', unsafe_allow_html=True)
-                            render_message_with_images(content)
+                        # Check if this is the final answer (Emperor or Sage-Approved)
+                        is_final = "Emperor" in agent or "Sage-Approved" in agent or "(Final)" in agent
+                        
+                        if is_final:
+                            final_answer = content
+                            final_agent = agent
+                        else:
+                            # Store intermediate response for expander
+                            avatar = next((a["avatar"] for a in council.AGENTS.values() if a["name"] in str(agent)), "🤖")
+                            intermediate_responses.append((agent, content, avatar))
+                        
                         if "```" in str(content):
                             try:
                                 st.session_state.artifact = content.split("```")[1].split("\n", 1)[-1].strip()
                             except:
                                 pass
+                
                 status.update(label="✅ Complete!", state="complete")
             except Exception as e:
                 status.update(label=f"❌ {str(e)}", state="error")
+        
+        # Display intermediate responses in expanders
+        if intermediate_responses:
+            with st.expander("🔍 View Council Deliberation", expanded=False):
+                for agent, content, avatar in intermediate_responses:
+                    cls = "strategist" if "Strategist" in agent else "executor" if "Executor" in agent else "sage" if "Sage" in agent else ""
+                    st.markdown(f'<span class="agent-badge agent-{cls}">{agent}</span>', unsafe_allow_html=True)
+                    st.markdown(content[:2000] + ("..." if len(content) > 2000 else ""))
+                    st.divider()
+        
+        # Display final answer prominently
+        if final_answer:
+            avatar = "👑" if "Emperor" in str(final_agent) else "⚔️"
+            with st.chat_message("assistant", avatar=avatar):
+                st.markdown(f'<span class="agent-badge agent-emperor">✨ {final_agent}</span>', unsafe_allow_html=True)
+                render_message_with_images(final_answer)
+        
         st.rerun()
 
 with col2:
