@@ -596,24 +596,58 @@ with col1:
     
     uploaded = st.file_uploader("📎 Attach", type=['pdf', 'txt', 'py', 'js', 'json', 'md', 'html', 'css', 'png', 'jpg'])
     
-    # History
     try:
         history = council.get_history(st.session_state.session_id)
         if history:
-            for msg in history:
+            # Group messages by conversation turns
+            i = 0
+            while i < len(history):
+                msg = history[i]
                 agent_name = msg.get("agent_name", "")
                 role = msg["role"]
-                avatar = "👤" if role == "user" else next((a["avatar"] for a in council.AGENTS.values() if a["name"] in str(agent_name)), "🤖")
-                with st.chat_message(role, avatar=avatar):
-                    if agent_name:
-                        cls = "emperor" if "Emperor" in agent_name else "strategist" if "Strategist" in agent_name else "executor" if "Executor" in agent_name else "sage" if "Sage" in agent_name else ""
-                        st.markdown(f'<span class="agent-badge agent-{cls}">{agent_name}</span>', unsafe_allow_html=True)
-                    render_message_with_images(msg["content"])
-                    if "```" in str(msg["content"]):
-                        try:
-                            st.session_state.artifact = msg["content"].split("```")[1].split("\n", 1)[-1].strip()
-                        except:
-                            pass
+                
+                # User messages always shown
+                if role == "user":
+                    with st.chat_message("user", avatar="👤"):
+                        render_message_with_images(msg["content"])
+                    i += 1
+                    continue
+                
+                # Check if this is a final answer
+                is_final = any(x in str(agent_name) for x in ["Emperor", "Sage-Approved", "(Final)"])
+                
+                if is_final:
+                    # Final answer - show prominently
+                    avatar = "👑" if "Emperor" in str(agent_name) else "⚔️"
+                    with st.chat_message("assistant", avatar=avatar):
+                        st.markdown(f'<span class="agent-badge agent-emperor">✨ {agent_name}</span>', unsafe_allow_html=True)
+                        render_message_with_images(msg["content"])
+                        if "```" in str(msg["content"]):
+                            try:
+                                st.session_state.artifact = msg["content"].split("```")[1].split("\n", 1)[-1].strip()
+                            except:
+                                pass
+                    i += 1
+                else:
+                    # Collect consecutive intermediate responses
+                    intermediate = []
+                    while i < len(history):
+                        m = history[i]
+                        a = m.get("agent_name", "")
+                        if m["role"] == "user" or any(x in str(a) for x in ["Emperor", "Sage-Approved", "(Final)"]):
+                            break
+                        intermediate.append(m)
+                        i += 1
+                    
+                    # Show intermediate responses in collapsed expander
+                    if intermediate:
+                        with st.expander(f"🔍 Council Deliberation ({len(intermediate)} steps)", expanded=False):
+                            for m in intermediate:
+                                a = m.get("agent_name", "")
+                                cls = "strategist" if "Strategist" in a else "executor" if "Executor" in a else "sage" if "Sage" in a else ""
+                                st.markdown(f'<span class="agent-badge agent-{cls}">{a}</span>', unsafe_allow_html=True)
+                                st.markdown(m["content"][:1500] + ("..." if len(m["content"]) > 1500 else ""))
+                                st.divider()
         else:
             st.info("✨ Start a conversation...")
     except Exception as e:
