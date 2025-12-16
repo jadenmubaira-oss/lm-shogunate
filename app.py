@@ -604,22 +604,26 @@ with col1:
     
     # History
     try:
-        for msg in council.get_history(st.session_state.session_id):
-            agent_name = msg.get("agent_name", "")
-            role = msg["role"]
-            avatar = "👤" if role == "user" else next((a["avatar"] for a in council.AGENTS.values() if a["name"] in str(agent_name)), "🤖")
-            with st.chat_message(role, avatar=avatar):
-                if agent_name:
-                    cls = "emperor" if "Emperor" in agent_name else "strategist" if "Strategist" in agent_name else "executor" if "Executor" in agent_name else "sage" if "Sage" in agent_name else ""
-                    st.markdown(f'<span class="agent-badge agent-{cls}">{agent_name}</span>', unsafe_allow_html=True)
-                render_message_with_images(msg["content"])
-                if "```" in str(msg["content"]):
-                    try:
-                        st.session_state.artifact = msg["content"].split("```")[1].split("\n", 1)[-1].strip()
-                    except:
-                        pass
-    except:
-        st.info("✨ Start a conversation...")
+        history = council.get_history(st.session_state.session_id)
+        if history:
+            for msg in history:
+                agent_name = msg.get("agent_name", "")
+                role = msg["role"]
+                avatar = "👤" if role == "user" else next((a["avatar"] for a in council.AGENTS.values() if a["name"] in str(agent_name)), "🤖")
+                with st.chat_message(role, avatar=avatar):
+                    if agent_name:
+                        cls = "emperor" if "Emperor" in agent_name else "strategist" if "Strategist" in agent_name else "executor" if "Executor" in agent_name else "sage" if "Sage" in agent_name else ""
+                        st.markdown(f'<span class="agent-badge agent-{cls}">{agent_name}</span>', unsafe_allow_html=True)
+                    render_message_with_images(msg["content"])
+                    if "```" in str(msg["content"]):
+                        try:
+                            st.session_state.artifact = msg["content"].split("```")[1].split("\n", 1)[-1].strip()
+                        except:
+                            pass
+        else:
+            st.info("✨ Start a conversation...")
+    except Exception as e:
+        st.error(f"⚠️ Error loading chat history: {str(e)}")
     
     # Input
     user_input = st.chat_input("Ask anything... (image: prompt, video: prompt, search: query)")

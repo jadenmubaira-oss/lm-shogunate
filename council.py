@@ -1016,36 +1016,85 @@ def delete_session(session_id: str):
     except:
         pass
 
+# Local message cache for when Supabase fails
+_local_messages: Dict[str, List[Dict]] = {}
 
 def get_sessions(user_id: str = None) -> List[Dict]:
+    """Get recent sessions, including local fallback sessions."""
+    sessions = []
+    
+    # Try Supabase
     try:
         db = get_supabase()
         if db:
             query = db.table("chat_sessions").select("*").order("created_at", desc=True).limit(20)
             if user_id:
                 query = query.eq("user_id", user_id)
-            return query.execute().data
-    except:
-        pass
-    return []
-
+            result = query.execute()
+            if result.data:
+                sessions = result.data
+    except Exception as e:
+        print(f"[get_sessions ERROR] {str(e)}")
+    
+    # Add local sessions (if any messages exist for them)
+    for session_id in _local_messages.keys():
+        if not any(s.get('id') == session_id for s in sessions):
+            msgs = _local_messages[session_id]
+            if msgs:
+                sessions.append({
+                    'id': session_id,
+                    'title': msgs[0].get('content', 'Local Chat')[:30] if msgs else 'Local Chat',
+                    'created_at': msgs[0].get('created_at', '') if msgs else ''
+                })
+    
+    return sessions
 
 def save_message(session_id: str, role: str, content: str, agent_name: str = None):
+    """Save message to Supabase, with local fallback."""
+    if not session_id or not content:
+        return
+    
+    msg_data = {
+        "session_id": session_id, 
+        "role": role, 
+        "agent_name": agent_name, 
+        "content": content, 
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
     try:
         db = get_supabase()
         if db:
-            db.table("messages").insert({"session_id": session_id, "role": role, "agent_name": agent_name, "content": content, "created_at": datetime.now(timezone.utc).isoformat()}).execute()
-    except:
-        pass
+            db.table("messages").insert(msg_data).execute()
+            return  # Success - saved to Supabase
+    except Exception as e:
+        print(f"[save_message ERROR] {str(e)}")
+    
+    # Fallback: save to local memory
+    if session_id not in _local_messages:
+        _local_messages[session_id] = []
+    _local_messages[session_id].append(msg_data)
 
 
 def get_history(session_id: str) -> List[Dict]:
+    """Get message history for a session, with local fallback."""
+    if not session_id:
+        return []
+    
+    # Try Supabase first
     try:
         db = get_supabase()
         if db:
-            return db.table("messages").select("*").eq("session_id", session_id).order("created_at").execute().data
-    except:
-        pass
+            result = db.table("messages").select("*").eq("session_id", session_id).order("created_at").execute()
+            if result.data:
+                return result.data
+    except Exception as e:
+        print(f"[get_history ERROR] session_id={session_id}, error={str(e)}")
+    
+    # Fallback: check local memory cache
+    if session_id in _local_messages:
+        return sorted(_local_messages[session_id], key=lambda x: x.get("created_at", ""))
+    
     return []
 
 
