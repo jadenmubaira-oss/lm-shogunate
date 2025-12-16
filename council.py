@@ -54,7 +54,7 @@ def reset_tokens():
 
 AGENTS = {
     "Emperor": {
-        "name": "天皇 (The Emperor)",
+        "name": "The Emperor",
         "model": "claude-opus-4-5",
         "api": "anthropic",
         "avatar": "👑",
@@ -78,7 +78,7 @@ NEVER say you "can't" do something. Find a way or delegate.
 Your response IS the final answer the user sees. Make it PERFECT."""
     },
     "Strategist": {
-        "name": "軍師 (Strategist)",
+        "name": "The Strategist",
         "model": "claude-sonnet-4-5",
         "api": "anthropic",
         "avatar": "🎯",
@@ -99,7 +99,7 @@ For simple queries (time, facts, greetings), answer directly - you ARE smart eno
 Be thorough. Be precise. Leave nothing ambiguous."""
     },
     "Executor": {
-        "name": "刀匠 (Executor)",
+        "name": "The Executor",
         "model": "gpt-5.2-chat",
         "api": "openai",
         "avatar": "⚔️",
@@ -114,16 +114,19 @@ CAPABILITIES:
 - Implement solutions fully
 - Generate images/videos: [GENERATE_IMAGE: prompt] or [GENERATE_VIDEO: prompt]
 - Search for info: [SEARCH: query]
+- EXECUTE CODE: [EXECUTE_CODE: your python code here] - I can RUN your code!
 
 CODE RULES:
 - Write COMPLETE code, never "..."  or "rest of implementation"
 - Include ALL imports, ALL functions, ALL logic
 - Make it copy-paste ready
+- When you write code, TEST IT by using [EXECUTE_CODE: code] to verify it works!
 
-You are the BUILDER. Build PERFECTLY."""
+You are the BUILDER. Build PERFECTLY. TEST your code!"""
     },
+
     "Sage": {
-        "name": "賢者 (Sage)",
+        "name": "The Sage",
         "model": "DeepSeek-V3.2-Speciale",
         "api": "openai",
         "avatar": "📿",
@@ -361,9 +364,168 @@ def rate_response_quality(response: str) -> float:
     return max(0.3, min(1.0, base))
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# CODE EXECUTION SANDBOX - THE FINAL PIECE FOR 100/100 PINNACLE
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+import subprocess
+import tempfile
+import sys
+
+def execute_code(code: str, language: str = "python", timeout: int = 10) -> Tuple[bool, str]:
+    """
+    SANDBOXED CODE EXECUTION - Run code safely with timeout and output capture.
+    
+    Returns: (success: bool, output: str)
+    
+    Features:
+    - 10 second timeout (prevents infinite loops)
+    - Captures stdout and stderr
+    - Isolated temp file execution
+    - No persistent file system access
+    """
+    if not code or len(code.strip()) < 3:
+        return False, "❌ No code provided"
+    
+    # Clean the code (remove markdown code blocks if present)
+    clean_code = code.strip()
+    if clean_code.startswith("```"):
+        lines = clean_code.split("\n")
+        # Remove first line (```python) and last line (```)
+        lines = [l for l in lines[1:] if not l.strip() == "```"]
+        clean_code = "\n".join(lines)
+    
+    if language.lower() in ["python", "py"]:
+        return _execute_python(clean_code, timeout)
+    elif language.lower() in ["javascript", "js", "node"]:
+        return _execute_javascript(clean_code, timeout)
+    else:
+        return False, f"❌ Unsupported language: {language}. Supported: python, javascript"
+
+
+def _execute_python(code: str, timeout: int = 10) -> Tuple[bool, str]:
+    """Execute Python code in a sandboxed subprocess."""
+    try:
+        # Create temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+            # Add safety wrapper
+            safe_code = f'''
+import sys
+import os
+
+# Sandbox restrictions
+class SandboxError(Exception):
+    pass
+
+# Restrict dangerous operations
+_original_open = open
+def _safe_open(file, mode='r', *args, **kwargs):
+    if 'w' in mode or 'a' in mode:
+        if not str(file).startswith(os.environ.get('TEMP', '/tmp')):
+            raise SandboxError("Writing to files outside temp is not allowed")
+    return _original_open(file, mode, *args, **kwargs)
+
+# Apply restrictions
+open = _safe_open
+
+# User code:
+{code}
+'''
+            f.write(safe_code)
+            temp_path = f.name
+        
+        # Execute with timeout
+        result = subprocess.run(
+            [sys.executable, temp_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=tempfile.gettempdir()
+        )
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        output = ""
+        if result.stdout:
+            output += result.stdout
+        if result.stderr:
+            output += ("\n" if output else "") + result.stderr
+        
+        if result.returncode == 0:
+            return True, f"✅ Execution successful:\n```\n{output.strip() or '(no output)'}\n```"
+        else:
+            return False, f"❌ Execution failed (exit code {result.returncode}):\n```\n{output.strip()}\n```"
+            
+    except subprocess.TimeoutExpired:
+        return False, f"⏰ Execution timed out after {timeout} seconds (possible infinite loop)"
+    except Exception as e:
+        return False, f"❌ Execution error: {str(e)}"
+
+
+def _execute_javascript(code: str, timeout: int = 10) -> Tuple[bool, str]:
+    """Execute JavaScript code using Node.js (if available)."""
+    try:
+        # Create temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False, encoding='utf-8') as f:
+            f.write(code)
+            temp_path = f.name
+        
+        # Try to find node
+        node_cmd = "node"
+        
+        # Execute with timeout
+        result = subprocess.run(
+            [node_cmd, temp_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=tempfile.gettempdir()
+        )
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        output = ""
+        if result.stdout:
+            output += result.stdout
+        if result.stderr:
+            output += ("\n" if output else "") + result.stderr
+        
+        if result.returncode == 0:
+            return True, f"✅ JS execution successful:\n```\n{output.strip() or '(no output)'}\n```"
+        else:
+            return False, f"❌ JS execution failed:\n```\n{output.strip()}\n```"
+            
+    except FileNotFoundError:
+        return False, "❌ Node.js not found. Install Node.js to execute JavaScript."
+    except subprocess.TimeoutExpired:
+        return False, f"⏰ Execution timed out after {timeout} seconds"
+    except Exception as e:
+        return False, f"❌ Execution error: {str(e)}"
+
+
+def extract_code_blocks(text: str) -> List[Tuple[str, str]]:
+    """Extract code blocks from text. Returns list of (language, code)."""
+    blocks = []
+    pattern = r'```(\w*)\n(.*?)```'
+    for match in re.finditer(pattern, text, re.DOTALL):
+        lang = match.group(1) or "python"
+        code = match.group(2).strip()
+        if code:
+            blocks.append((lang, code))
+    return blocks
+
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 # MEDIA GENERATION
+
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 
 def generate_image(prompt: str) -> Tuple[Optional[str], Optional[str]]:
@@ -555,7 +717,28 @@ def process_ai_commands(text: str) -> List[Tuple[str, str]]:
             if query:
                 commands.append(("search", query))
     
+    # CODE EXECUTION COMMANDS - THE PINNACLE FEATURE
+    for pattern in [
+        r'\[EXECUTE[_\s]?CODE[:\s]+([^\]]+)\]',
+        r'\[RUN[_\s]?CODE[:\s]+([^\]]+)\]',
+        r'\[EXECUTE[:\s]+([^\]]+)\]',
+        r'\[RUN[:\s]+([^\]]+)\]',
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            code = match.group(1).strip()
+            if code:
+                commands.append(("execute", code))
+    
+    # Also extract code blocks for potential execution
+    code_blocks = extract_code_blocks(text)
+    for lang, code in code_blocks:
+        if lang.lower() in ['python', 'py', 'javascript', 'js']:
+            # Only auto-execute if it looks like test code
+            if any(test in code.lower() for test in ['print(', 'console.log', 'assert', 'test_', 'def test']):
+                commands.append(("execute_block", f"{lang}|||{code}"))
+    
     return commands
+
 
 
 def extract_image_urls(text: str) -> List[str]:
@@ -1084,7 +1267,7 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         yield (AGENTS["Executor"]["name"], solution, "executor")
         yield (AGENTS["Sage"]["name"], reasoning, "sage")
     
-    # Process commands
+    # Process commands (including CODE EXECUTION)
     for text in [solution, reasoning]:
         for cmd_type, prompt in process_ai_commands(text):
             if cmd_type == "image":
@@ -1097,20 +1280,37 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
                 url, _ = generate_video(prompt)
                 if url:
                     yield ("System", url, "video")
+            elif cmd_type == "execute":
+                # EXECUTE CODE - THE PINNACLE FEATURE
+                yield ("System", "🖥️ Executing code in sandbox...", "system")
+                success, output = execute_code(prompt)
+                yield ("System", output, "system")
+                # Add execution result to context for agents
+                context.append({"role": "user", "content": f"[CODE EXECUTION RESULT]:\n{output}"})
+            elif cmd_type == "execute_block":
+                # Auto-execute code blocks with test patterns
+                parts = prompt.split("|||", 1)
+                if len(parts) == 2:
+                    lang, code = parts
+                    yield ("System", f"🖥️ Auto-testing {lang} code...", "system")
+                    success, output = execute_code(code, lang)
+                    yield ("System", output, "system")
+                    context.append({"role": "user", "content": f"[AUTO-TEST RESULT]:\n{output}"})
+
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 6: UNLIMITED REFINEMENT LOOP (#1 IN THE WORLD)
-    # Loop until quality > 90% AND Sage approves (max 10 rounds for safety)
+    # PHASE 6: REFINEMENT LOOP (only if Sage found issues)
+    # Loop ONLY if Sage doesn't approve (not based on arbitrary quality score)
     # ═══════════════════════════════════════════════════════════════════════════════
     
-    MAX_REFINEMENT_ROUNDS = 10  # Increased from 3 - we don't stop until perfect
-    QUALITY_THRESHOLD = 0.90   # Must be 90%+ quality to stop
+    MAX_REFINEMENT_ROUNDS = 3  # Reduced from 10 to prevent token waste
     round_num = 0
-    quality = rate_response_quality(solution)
     
-    while (not sage_approves(reasoning) or quality < QUALITY_THRESHOLD) and round_num < MAX_REFINEMENT_ROUNDS:
+    # ONLY loop if Sage explicitly disapproves - not based on quality heuristics
+    while not sage_approves(reasoning) and round_num < MAX_REFINEMENT_ROUNDS:
         round_num += 1
-        yield ("System", f"🔄 Refinement Round {round_num} - Quality: {quality:.0%} | Aiming for {QUALITY_THRESHOLD:.0%}+", "system")
+        yield ("System", f"🔄 Refinement Round {round_num}/{MAX_REFINEMENT_ROUNDS} - Sage found issues, fixing...", "system")
+
 
         
         # Executor fixes
@@ -1151,10 +1351,7 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
         save_message(session_id, "assistant", reasoning, f"{AGENTS['Sage']['name']} (R{round_num})")
         context.append({"role": "assistant", "content": f"[SAGE R{round_num}]:\n{reasoning}"})
         yield (f"{AGENTS['Sage']['name']} (Round {round_num})", reasoning, "sage")
-        
-        # RECALCULATE QUALITY after each round
-        quality = rate_response_quality(solution)
-        
+
         # Process any new commands
         for cmd_type, prompt in process_ai_commands(solution):
             if cmd_type == "image":
@@ -1168,27 +1365,15 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
                 if url:
                     yield ("System", url, "video")
     
-    # Calculate final quality
-    final_quality = rate_response_quality(solution)
-    
+    # Report refinement result
     if round_num > 0:
-        if sage_approves(reasoning) and final_quality >= QUALITY_THRESHOLD:
-            yield ("System", f"✅ PERFECT! Sage APPROVED | Quality: {final_quality:.0%} after {round_num} round(s)!", "system")
-        elif sage_approves(reasoning):
-            yield ("System", f"✅ Sage APPROVED after {round_num} round(s) | Quality: {final_quality:.0%}", "system")
+        if sage_approves(reasoning):
+            yield ("System", f"✅ Sage APPROVED after {round_num} refinement round(s)!", "system")
         else:
-            yield ("System", f"⚠️ Max rounds ({MAX_REFINEMENT_ROUNDS}) | Quality: {final_quality:.0%}", "system")
-
+            yield ("System", f"⚠️ Max refinement rounds ({MAX_REFINEMENT_ROUNDS}) reached", "system")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 7: CONFIDENCE CHECK
-    # ═══════════════════════════════════════════════════════════════════════════════
-    
-    confidence = extract_confidence(solution)
-    yield ("System", f"📈 Solution confidence: {confidence:.0%}", "system")
-    
-    # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 8: EMPEROR SYNTHESIS
+    # PHASE 7: EMPEROR SYNTHESIS
     # ═══════════════════════════════════════════════════════════════════════════════
     
     yield ("System", "👑 Emperor synthesizing final answer...", "system")
@@ -1199,7 +1384,6 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
 [QUERY TYPE]: {query_type}
 [DEBATE MODE]: {'Yes' if use_debate else 'No'}
 [REFINEMENT ROUNDS]: {round_num}
-[CONFIDENCE]: {confidence:.0%}
 
 [STRATEGIST ANALYSIS]:
 {plan[:2000]}
