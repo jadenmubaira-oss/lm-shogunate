@@ -1139,7 +1139,8 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         yield ("System", "📸 Screenshot attached", "system")
     
     history = get_history(session_id)
-    context = [{"role": msg["role"], "content": f"[{msg.get('agent_name', 'User')}]: {msg['content'][:1000]}"} for msg in history[-8:]]
+    # Reduced context: only last 4 messages, 500 chars each (was 8 messages, 1000 chars)
+    context = [{"role": msg["role"], "content": f"[{msg.get('agent_name', 'User')}]: {msg['content'][:500]}"} for msg in history[-4:]]
     
     save_message(session_id, "user", user_input)
     if not history:
@@ -1260,9 +1261,10 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         
         yield ("System", "⚔️📿 Executor building + Sage reasoning (parallel)...", "system")
         
+        # Reduced max_tokens to save tokens while still allowing complete responses
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            executor_future = pool.submit(call_agent, "Executor", context, 8000)
-            sage_future = pool.submit(call_agent, "Sage", context, 4000)
+            executor_future = pool.submit(call_agent, "Executor", context, 6000)  # Reduced from 8000
+            sage_future = pool.submit(call_agent, "Sage", context, 2000)  # Reduced from 4000
             
             solution, _ = executor_future.result()
             reasoning, _ = sage_future.result()
@@ -1381,43 +1383,46 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
             yield ("System", f"⚠️ Max refinement rounds ({MAX_REFINEMENT_ROUNDS}) reached", "system")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 7: EMPEROR SYNTHESIS
+    # PHASE 7: SMART EMPEROR SYNTHESIS
+    # REVOLUTIONARY: Skip Emperor if Sage approved on first try - saves ~50% tokens
     # ═══════════════════════════════════════════════════════════════════════════════
     
-    yield ("System", "👑 Emperor synthesizing final answer...", "system")
+    # SMART SKIP: If Sage approved immediately (no refinement) AND solution is high quality,
+    # use Executor's solution directly instead of expensive Emperor call
+    skip_emperor = (round_num == 0 and sage_approves(reasoning) and len(solution) > 200)
     
-    emperor_input = f"""[ORIGINAL QUERY]:
-{enhanced_input[:1000]}
+    if skip_emperor:
+        yield ("System", "⚡ Sage approved - using Executor solution directly (saving tokens)", "system")
+        verdict = solution
+        save_message(session_id, "assistant", verdict, f"{AGENTS['Executor']['name']} (Final)")
+        yield (f"{AGENTS['Executor']['name']} (Sage-Approved)", verdict, "executor")
+    else:
+        yield ("System", "👑 Emperor synthesizing final answer...", "system")
+        
+        # Reduced context size to save tokens
+        emperor_input = f"""[QUERY]: {enhanced_input[:800]}
+[TYPE]: {query_type} | [ROUNDS]: {round_num}
 
-[QUERY TYPE]: {query_type}
-[DEBATE MODE]: {'Yes' if use_debate else 'No'}
-[REFINEMENT ROUNDS]: {round_num}
+[SOLUTION]:
+{solution[:3000]}
 
-[STRATEGIST ANALYSIS]:
-{plan[:2000]}
+[SAGE]: {reasoning[:1000]}
 
-[EXECUTOR SOLUTION]:
-{solution[:4000]}
-
-[SAGE VERDICT]:
-{reasoning[:1500]}
-
-SYNTHESIZE THE BEST POSSIBLE RESPONSE. This is the FINAL answer the user sees.
-Fix any remaining issues. Add missing details. Make it PERFECT."""
+Synthesize the FINAL answer. Fix issues. Make it PERFECT."""
+        
+        verdict, _ = call_agent("Emperor", [{"role": "user", "content": emperor_input}], 6000)
+        save_message(session_id, "assistant", verdict, AGENTS["Emperor"]["name"])
+        yield (AGENTS["Emperor"]["name"], verdict, "emperor")
     
-    verdict, _ = call_agent("Emperor", [{"role": "user", "content": emperor_input}], 8000)
-    save_message(session_id, "assistant", verdict, AGENTS["Emperor"]["name"])
-    yield (AGENTS["Emperor"]["name"], verdict, "emperor")
-    
-    # Process Emperor's commands
+    # Process commands from final answer
     for cmd_type, prompt in process_ai_commands(verdict):
         if cmd_type == "image":
-            yield ("System", "🎨 Emperor commanded image...", "system")
+            yield ("System", "🎨 Generating image...", "system")
             url, _ = generate_image(prompt)
             if url:
                 yield ("System", url, "image")
         elif cmd_type == "video":
-            yield ("System", "🎬 Emperor commanded video...", "system")
+            yield ("System", "🎬 Generating video...", "system")
             url, _ = generate_video(prompt)
             if url:
                 yield ("System", url, "video")
@@ -1426,12 +1431,12 @@ Fix any remaining issues. Add missing details. Make it PERFECT."""
     for img_url in extract_image_urls(verdict):
         yield ("System", img_url, "image")
     
-    # FIXED: Only save important exchanges to memory (not every query)
+    # Only save important exchanges to memory
     if len(user_input) > 100 and len(verdict) > 500:
         save_memory(f"Q: {user_input[:150]}\nA: {verdict[:400]}", user_id)
     
-    # Final stats - FIXED: removed broken confidence reference
-    yield ("System", f"🧠 Council Complete | {get_tokens_used():,} tokens | {round_num} refinements", "system")
-
+    # Final stats
+    tokens_saved = "~50% saved via smart skip" if skip_emperor else ""
+    yield ("System", f"🧠 Council Complete | {get_tokens_used():,} tokens | {round_num} refinements {tokens_saved}", "system")
 
 

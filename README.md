@@ -1,50 +1,26 @@
-# 🧠 NEURAL COUNCIL - 100/100 PINNACLE
+# 🧠 NEURAL COUNCIL - DEITY STATUS
 
-## The Ultimate Multi-Agent AI System - NOW WITH CODE EXECUTION
+## The Ultimate Multi-Agent AI System
 
 **4 AI models collaborating, debating, refining, and TESTING code.**
 
 ---
 
-## 🔥 What Makes This 100/100
+## 🔥 What Makes This Revolutionary
 
 | Feature | Status | Description |
 |---------|--------|-------------|
 | 👁️ **TRUE VISION** | ✅ | Claude sees screenshots |
 | 🧠 **TRUE EMBEDDINGS** | ✅ | Azure OpenAI semantic embeddings |
-| 🔄 **UNLIMITED REFINEMENT** | ✅ | 10 rounds, 90% quality threshold |
-| 📈 **SELF-RATING** | ✅ | Every response scored |
+| 🔄 **SMART REFINEMENT** | ✅ | 3 rounds max, Sage-approval only |
+| ⚡ **SMART SKIP** | ✅ | Skip Emperor when Sage approves (~50% token savings) |
 | 💭 **DEBATE MODE** | ✅ | Agents challenge each other |
 | 📊 **DYNAMIC ROUTING** | ✅ | Query classification |
-| 🖥️ **CODE EXECUTION** | ✅ | **SANDBOXED PYTHON/JS EXECUTION** |
+| 🖥️ **CODE EXECUTION** | ✅ | Sandboxed Python/JS |
 
 ---
 
-## 🖥️ CODE EXECUTION SANDBOX
-
-**THE FINAL PIECE - Agents can now RUN and TEST code!**
-
-```python
-# Executor can use:
-[EXECUTE_CODE: print("Hello World")]
-
-# Result:
-✅ Execution successful:
-```
-Hello World
-```
-```
-
-Features:
-- Python and JavaScript support
-- 10-second timeout (prevents infinite loops)
-- Sandboxed (no file system access outside temp)
-- Automatic test detection and execution
-- Results fed back to agents for refinement
-
----
-
-## 🏆 The 100/100 Architecture
+## 🏆 Architecture
 
 ```
 Query Input + Screenshot
@@ -53,39 +29,27 @@ Query Input + Screenshot
     ↓
 🎯 STRATEGIST (WITH VISION)
     ↓
-💭 DEBATE MODE? (complex queries)
+💭 DEBATE MODE? (500+ chars AND complex)
     ↓
-⚔️ EXECUTOR (builds + TESTS code)
-    ↓
-📿 SAGE (reviews)
+⚔️ EXECUTOR + 📿 SAGE (parallel)
     ↓
 🖥️ CODE EXECUTION (sandboxed)
     ↓
-🔄 UNLIMITED REFINEMENT (10 rounds, 90%+)
+🔄 REFINEMENT (max 3 rounds, sage-approval based)
     ↓
-👑 EMPEROR SYNTHESIS
+⚡ SMART SKIP (if approved) or 👑 EMPEROR
 ```
 
 ---
 
 ## 🛠️ Setup
 
-### Environment Variables
-
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AZURE_API_KEY` | ✅ | Azure AI Foundry key |
-| `REPLICATE_API_TOKEN` | Optional | For video generation |
-| `SUPABASE_URL` | ✅ | Your Supabase URL |
+| `REPLICATE_API_TOKEN` | Optional | Video generation |
+| `SUPABASE_URL` | ✅ | Supabase URL |
 | `SUPABASE_KEY` | ✅ | Supabase anon key |
-
-### Deploy
-
-```bash
-git add .
-git commit -m "NEURAL COUNCIL: 100/100 - Code Execution Sandbox"
-git push
-```
 
 ---
 
@@ -95,7 +59,7 @@ git push
 |------|-------|-------|------|
 | 👑 | Emperor | Claude Opus 4.5 | Final Synthesis |
 | 🎯 | Strategist | Claude Sonnet 4.5 | Planning + VISION |
-| ⚔️ | Executor | GPT-5.2 | Build + **TEST CODE** |
+| ⚔️ | Executor | GPT-5.2 | Build + TEST CODE |
 | 📿 | Sage | DeepSeek V3.2 | Critique & Approval |
 
 ---
@@ -111,4 +75,4 @@ git push
 
 ---
 
-**THE 100/100 PINNACLE AI COUNCIL** 🏆👑🧠
+**DEITY STATUS ACHIEVED** 🏆👑🧠
