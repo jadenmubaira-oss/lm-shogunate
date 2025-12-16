@@ -397,6 +397,44 @@ async function captureScreen() {
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SITE PASSWORD GATE - Before login
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SITE_PASSWORD = os.getenv("SITE_PASSWORD", "neural2024")  # Change this or set env var
+
+# Check if user has passed site gate
+if "site_unlocked" not in st.session_state:
+    st.session_state.site_unlocked = False
+
+if not st.session_state.site_unlocked:
+    st.markdown("""
+    <div style="text-align: center; padding: 100px 20px;">
+        <div style="font-size: 4em; margin-bottom: 20px;">🔐</div>
+        <h1 style="
+            font-size: 2.5em;
+            background: linear-gradient(90deg, #ff1493, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        ">Access Required</h1>
+        <p style="color: rgba(255,255,255,0.5); margin-top: 10px;">Enter the site password to continue</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        site_pass = st.text_input("Site Password", type="password", key="site_pass_input", placeholder="Enter access code...")
+        
+        if st.button("🔓 Unlock", use_container_width=True, key="site_unlock_btn"):
+            if site_pass == SITE_PASSWORD:
+                st.session_state.site_unlocked = True
+                st.success("✅ Access granted!")
+                st.rerun()
+            else:
+                st.error("❌ Incorrect password")
+    
+    st.stop()
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AUTHENTICATION WITH PERSISTENT SESSIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
