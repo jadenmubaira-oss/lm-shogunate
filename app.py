@@ -401,7 +401,8 @@ with col1:
                         with st.chat_message("assistant", avatar=avatar):
                             agent_class = "emperor" if "Emperor" in agent else \
                                          "strategist" if "Strategist" in agent else \
-                                         "executor" if "Executor" in agent else ""
+                                         "executor" if "Executor" in agent else \
+                                         "sage" if "Sage" in agent else ""
                             st.markdown(f'<span class="agent-badge agent-{agent_class}">{agent}</span>', unsafe_allow_html=True)
                             st.markdown(content)
                         
@@ -459,6 +460,7 @@ with col2:
     | 👑 | **Emperor** | Claude Opus 4.5 |
     | ⭐ | **Strategist** | Claude Sonnet 4.5 |
     | ⭐ | **Executor** | GPT-5.2 |
+    | 📿 | **Sage** | DeepSeek V3.2 |
     """)
     
     st.divider()
@@ -467,8 +469,9 @@ with col2:
         st.markdown("""
         - `search: query` - Web search
         - `image: prompt` - Generate images
+        - `video: prompt` - Generate videos
         - Paste URLs - Auto-read content
         - Upload files - PDF, code, etc.
-        - Theme changes saved
         - Sessions persist on refresh
         """)
+
