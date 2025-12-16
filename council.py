@@ -762,12 +762,14 @@ def is_simple_query(text: str) -> bool:
     if is_image_request(text) or is_video_request(text):
         return False
     lower = text.lower().strip()
-    # Simple: short, no code, no complex words
-    if len(lower) < 40 and '```' not in text:
-        simple_words = ['hello', 'hi', 'hey', 'thanks', 'thank', 'time', 'date', 'today', 'who are you', 'what are you']
+    # Simple: short, no code, contains greeting/basic words
+    if len(lower) < 50 and '```' not in text:
+        simple_words = ['hello', 'hi', 'hey', 'thanks', 'thank you', 'time', 'date', 'today', 
+                        'who are you', 'what are you', 'how are you', 'good morning', 'good night']
         if any(w in lower for w in simple_words):
             return True
-    return len(lower) < 25 and '```' not in text
+    # Very short queries (< 30 chars) without code are simple
+    return len(lower) < 30 and '```' not in text and '?' not in text
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -854,8 +856,14 @@ def sage_approves(critique: str) -> bool:
     approval_count = sum(1 for w in approval_words if w in lower)
     critical_count = sum(1 for w in critical_words if w in lower)
     
-    # If more approval than critical, and no critical issues dominant
-    return approval_count >= critical_count and critical_count < 3
+    # FIXED: If critical issues exist, don't approve
+    if critical_count >= 2:
+        return False
+    # If no approval words AND has critical words -> needs work
+    if approval_count == 0 and critical_count > 0:
+        return False
+    # Default: approve if no critical issues
+    return True
 
 
 def needs_debate(text: str, query_type: str) -> bool:
@@ -868,8 +876,8 @@ def needs_debate(text: str, query_type: str) -> bool:
                        'design decision', 'architecture', 'choose between', 'recommend', 
                        'opinion', 'controversial', 'debate', 'versus', ' vs ', 'alternative']
     
-    # Long complex queries benefit from debate
-    if len(text) > 200:
+    # FIXED: Only trigger debate for genuinely complex queries (500+ chars AND complex type)
+    if len(text) > 500 and query_type in ['code', 'reasoning']:
         return True
     
     return any(trigger in lower for trigger in debate_triggers)
@@ -1418,11 +1426,12 @@ Fix any remaining issues. Add missing details. Make it PERFECT."""
     for img_url in extract_image_urls(verdict):
         yield ("System", img_url, "image")
     
-    # Save to memory
-    save_memory(f"Q: {user_input[:150]}\nA: {verdict[:400]}", user_id)
+    # FIXED: Only save important exchanges to memory (not every query)
+    if len(user_input) > 100 and len(verdict) > 500:
+        save_memory(f"Q: {user_input[:150]}\nA: {verdict[:400]}", user_id)
     
-    # Final stats
-    yield ("System", f"🧠 Council Complete | {get_tokens_used():,} tokens | {round_num} refinements | {confidence:.0%} confidence", "system")
+    # Final stats - FIXED: removed broken confidence reference
+    yield ("System", f"🧠 Council Complete | {get_tokens_used():,} tokens | {round_num} refinements", "system")
 
 
 

@@ -558,7 +558,7 @@ with st.sidebar:
     
     st.markdown("### 🧠 The Council")
     for key, a in council.AGENTS.items():
-        st.markdown(f"{a['avatar']} **{a['name'].split('(')[0].strip()}**")
+        st.markdown(f"{a['avatar']} **{a['name']}**")
     
     st.divider()
     
