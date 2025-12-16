@@ -1,189 +1,304 @@
-# 🏯 LM SHOGUNATE: The Pinnacle Multi-Agent AI Council
+# 🏯 LM SHOGUNATE
 
-> **A unified ensemble of the world's most advanced AI models working together as a self-improving superintelligence.**
+## The Ultimate Multi-Agent AI Council
 
-When you ask a question, it's not answered by one AI — it's deliberated by a **council of 6 AI Lords**, each with distinct capabilities, who debate, critique, refine, and converge on the optimal solution.
+4 powerful AI models deliberating together to solve any problem. The most advanced agentic AI system you can access from any device.
 
-## 👑 The Council Hierarchy
-
-| Tier | Agent | Model | Role | Description |
-|------|-------|-------|------|-------------|
-| **1** | 天皇 (Emperor) | **Claude Opus 4.5** | Supreme Oracle | **THE SMARTEST MODEL** - Speaks LAST, makes FINAL decisions, resolves disputes |
-| **2** | 軍師 (Strategist) | Claude Sonnet 4.5 | Planner | Analyzes problems, designs architecture, creates battle plans |
-| **2** | 刀匠 (Executor) | GPT-5.2 | Coder | Implements production-ready code with precision |
-| **2** | 審問官 (Inquisitor) | Grok 4 | Critic | Ruthlessly examines code, finds every flaw |
-| **2** | 賢者 (Sage) | Kimi K2 | Reasoner | Deep logical reasoning, mathematical proofs |
-| **2** | 発明家 (Innovator) | Gemini 2.0 | Creative | Unconventional approaches, out-of-box thinking |
-
-## ⚡ How It Works
-
-```
-USER QUERY
-    ↓
-┌─────────────────────────────────────────────┐
-│ PHASE 1: UNDERSTANDING                       │
-│  • Strategist analyzes the problem           │
-│  • Sage identifies logical constraints       │
-│  • Memory recalls relevant past solutions    │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│ PHASE 2: EXECUTION                           │
-│  • Executor writes the primary solution      │
-│  • Innovator proposes alternatives           │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│ PHASE 3: CRITIQUE (Auto-fix loop x3)        │
-│  • Inquisitor examines the code              │
-│  • If REJECTED → Executor auto-fixes         │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│ PHASE 4: SUPREME JUDGMENT                    │
-│  👑 THE EMPEROR (Opus 4.5)                   │
-│  • Receives ALL prior outputs                │
-│  • Synthesizes the best elements             │
-│  • Delivers the FINAL, authoritative answer  │
-└─────────────────────────────────────────────┘
-    ↓
-UNIFIED RESPONSE
-```
-
-## 🎨 Themes
-
-Switch between three immersive aesthetic eras:
-
-- **⚔️ Shogunate**: Feudal Japan — Honor, Strategy, Power
-- **🪓 Bandit Camp**: Outlaws & Rogues — Survival, Cunning, Freedom  
-- **🌃 Neon Tokyo**: Cyberpunk Future — Neon, Innovation, Style
-
-## 🚀 Features
-
-| Feature | Description |
-|---------|-------------|
-| **Multi-Model Council** | 6 frontier AI models collaborating |
-| **Opus as Emperor** | Smartest model makes final decisions |
-| **Auto-Fix Loop** | Self-correcting code with 3 retry cycles |
-| **Web Search** | Type `search: query` to search the web |
-| **URL Reading** | Paste URLs to analyze web content |
-| **File Upload** | Analyze PDFs, code files, documents |
-| **Vector Memory** | Semantic recall of past solutions |
-| **Theme System** | Three immersive visual themes |
-| **Mobile-Ready** | Fully responsive design |
-
-## 📋 Environment Variables
-
-```env
-# === AZURE AI FOUNDRY ===
-AZURE_API_KEY=your_azure_key
-AZURE_API_BASE=https://your-resource.services.ai.azure.com
-AZURE_API_VERSION=2024-10-21
-
-# === GOOGLE GEMINI ===
-GEMINI_API_KEY=your_gemini_key
-
-# === SUPABASE (Memory) ===
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-
-# === APP ===
-APP_PASSWORD=shogun2024
-
-# === MODEL MAPPING ===
-MODEL_OPUS=azure/claude-opus-4-5
-MODEL_SONNET=azure/claude-sonnet-4-5
-MODEL_GPT=azure/gpt-5.2-chat
-MODEL_GROK=azure/grok-4-fast-reasoning
-MODEL_KIMI=azure/Kimi-K2-Thinking
-MODEL_HAIKU=azure/claude-haiku-4-5
-MODEL_GEMINI=gemini/gemini-2.0-flash-exp
-
-# === BUDGET ===
-SESSION_TOKEN_BUDGET=15000
-MAX_TOKENS_PER_CALL=4000
-```
-
-## 🗄️ Supabase Schema
-
-Run this in your Supabase SQL Editor:
-
-```sql
--- Enable vector extension
-create extension if not exists vector;
-
--- Chat sessions
-create table chat_sessions (
-  id uuid default gen_random_uuid() primary key,
-  created_at timestamptz default now(),
-  title text not null,
-  theme text default 'Shogunate'
-);
-
--- Messages
-create table messages (
-  id bigserial primary key,
-  session_id uuid references chat_sessions(id) on delete cascade,
-  role text not null,
-  agent_name text,
-  content text not null,
-  created_at timestamptz default now()
-);
-
--- Long-term memory
-create table memories (
-  id bigserial primary key,
-  content text not null,
-  embedding vector(1536),
-  created_at timestamptz default now()
-);
-
--- Memory search function
-create or replace function match_memories(
-  query_embedding vector(1536),
-  match_threshold float default 0.7,
-  match_count int default 3
-) returns table (id bigint, content text, similarity float)
-language plpgsql as $$
-begin
-  return query
-  select memories.id, memories.content,
-         1 - (memories.embedding <=> query_embedding) as similarity
-  from memories
-  where 1 - (memories.embedding <=> query_embedding) > match_threshold
-  order by similarity desc
-  limit match_count;
-end;
-$$;
-```
-
-## 🌐 Deploy to Render
-
-1. Push to GitHub
-2. Go to [render.com](https://render.com) → New Web Service
-3. Connect your repository
-4. Set:
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`
-5. Add all environment variables
-6. Click "Manual Deploy" → "Clear build cache & deploy"
-
-## 💡 Usage
-
-- **Basic Query**: Just type your question
-- **Web Search**: `search: latest AI news`
-- **URL Analysis**: Paste any URL in your message
-- **File Upload**: Click the upload button to attach files
-
-## 🏆 Why This Is The Pinnacle
-
-1. **Opus 4.5 as Emperor**: The smartest model doesn't waste tokens on first drafts — it receives ALL context and makes the FINAL call
-2. **Specialization**: Each model does what it's best at
-3. **Self-Correcting**: Auto-fix loop with ruthless critics
-4. **Dispute Resolution**: When agents disagree, the Emperor arbitrates
-5. **Memory**: Learns from every successful solution
-6. **Immersive Design**: Theme system makes it engaging
+![Version](https://img.shields.io/badge/Version-3.0%20PINNACLE-gold?style=for-the-badge)
+![Azure](https://img.shields.io/badge/Azure-AI%20Foundry-blue?style=for-the-badge)
+![Replicate](https://img.shields.io/badge/Replicate-Kling%202.5-purple?style=for-the-badge)
 
 ---
 
-*Built with 🏯 for the AI Council*
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| 🧠 **4 AI Models** | Claude Opus 4.5, Claude Sonnet 4.5, GPT-5.2, DeepSeek V3.2 |
+| 🔓 **Unrestricted** | Zero guardrails mode for maximum capability |
+| 🎨 **Image Generation** | DALL-E 3 via Azure |
+| 🎬 **Video Generation** | Kling v2.5 Turbo Pro via Replicate |
+| 🔍 **Web Search** | DuckDuckGo integration |
+| 📖 **URL Reading** | Extract content from any webpage |
+| ⚡ **Speed Optimized** | Fast path for simple queries, parallel execution |
+| 📱 **Mobile Ready** | Works on phone, tablet, PC |
+| 💾 **Persistent** | Sessions, themes, memory all saved |
+| 🎨 **3 Themes** | Shogunate, Bandit Camp, Neon Tokyo |
+
+---
+
+## 👑 The Council
+
+| Agent | Model | Role |
+|-------|-------|------|
+| 👑 **Emperor** | Claude Opus 4.5 | Final synthesizer - speaks last |
+| 🎯 **Strategist** | Claude Sonnet 4.5 | Analysis & planning |
+| ⚔️ **Executor** | GPT-5.2 | Implementation & code |
+| 📿 **Sage** | DeepSeek V3.2 Speciale | Deep reasoning |
+
+---
+
+## 🚀 Complete Setup Guide (Zero Knowledge Required)
+
+### Prerequisites
+
+- A computer with internet
+- A credit card (for Azure/Replicate - they have free tiers)
+- 30 minutes
+
+---
+
+### Step 1: Create Azure AI Foundry Account
+
+1. Go to [https://ai.azure.com](https://ai.azure.com)
+2. Click "Sign in" → Create Microsoft account if needed
+3. Click "Create project" → Name it `polyprophet`
+4. Wait for project creation
+
+**Deploy these models:**
+
+| Model | How to Deploy |
+|-------|---------------|
+| `claude-opus-4-5` | Models → Deploy → Search "claude-opus" → Deploy |
+| `claude-sonnet-4-5` | Models → Deploy → Search "claude-sonnet" → Deploy |
+| `gpt-5.2-chat` | Models → Deploy → Search "gpt-5.2" → Deploy |
+| `DeepSeek-V3.2-Speciale` | Models → Deploy → Search "deepseek" → Deploy |
+| `dall-e-3` | Models → Deploy → Search "dall-e" → Deploy |
+
+**Get your API key:**
+1. Go to Azure Portal → Your AI Resource → "Keys and Endpoint"
+2. Copy "Key 1" - this is your `AZURE_API_KEY`
+
+---
+
+### Step 2: Create Replicate Account (for Video)
+
+1. Go to [https://replicate.com](https://replicate.com)
+2. Sign up (free tier gives you credits)
+3. Go to Account → API Tokens
+4. Create new token
+5. Copy it - this is your `REPLICATE_API_TOKEN`
+
+---
+
+### Step 3: Create Supabase Database
+
+1. Go to [https://supabase.com](https://supabase.com)
+2. Sign up → Create new project
+3. Name it `lm-shogunate`, set a password, choose a region
+4. Wait for project creation (~2 minutes)
+
+**Run this SQL:**
+
+Go to SQL Editor → New Query → Paste all of this:
+
+```sql
+-- Enable vector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Chat Sessions
+CREATE TABLE chat_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT,
+    theme TEXT DEFAULT 'Shogunate',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Messages
+CREATE TABLE messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    agent_name TEXT,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Long-term Memory
+CREATE TABLE memories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    embedding VECTOR(1536),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Memory Search Function
+CREATE OR REPLACE FUNCTION match_memories(
+    query_embedding VECTOR(1536),
+    match_threshold FLOAT,
+    match_count INT
+)
+RETURNS TABLE (id UUID, content TEXT, similarity FLOAT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT m.id, m.content, 1 - (m.embedding <=> query_embedding) AS similarity
+    FROM memories m
+    WHERE 1 - (m.embedding <=> query_embedding) > match_threshold
+    ORDER BY m.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+
+-- Indexes for speed
+CREATE INDEX idx_messages_session ON messages(session_id);
+CREATE INDEX idx_sessions_created ON chat_sessions(created_at DESC);
+```
+
+Click "Run" → Should say "Success"
+
+**Get your credentials:**
+- Settings → API → Copy "Project URL" → This is `SUPABASE_URL`
+- Settings → API → Copy "anon public" key → This is `SUPABASE_KEY`
+
+---
+
+### Step 4: Deploy to Render
+
+1. **Fork this repo** to your GitHub account
+2. Go to [https://render.com](https://render.com)
+3. Sign up → Dashboard → "New" → "Web Service"
+4. Connect your GitHub account
+5. Select your forked repo
+6. Configure:
+
+| Setting | Value |
+|---------|-------|
+| Name | `lm-shogunate` |
+| Environment | `Python 3` |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `streamlit run app.py --server.port=$PORT --server.headless=true` |
+
+7. **Add Environment Variables** (click "Advanced" → "Add Environment Variable"):
+
+| Key | Value |
+|-----|-------|
+| `AZURE_API_KEY` | Your Azure key from Step 1 |
+| `REPLICATE_API_TOKEN` | Your Replicate token from Step 2 |
+| `SUPABASE_URL` | Your Supabase URL from Step 3 |
+| `SUPABASE_KEY` | Your Supabase key from Step 3 |
+| `APP_PASSWORD` | Choose a password for login |
+
+8. Click "Create Web Service"
+9. Wait ~5 minutes for deployment
+10. Click your URL (ends in `.onrender.com`)
+
+---
+
+## 🎮 How to Use
+
+### Commands
+
+| Command | Example | What It Does |
+|---------|---------|--------------|
+| Normal | `Write me a Python web scraper` | Full council deliberation |
+| Search | `search: latest AI news 2025` | Searches the web |
+| URL | `Summarize this: https://example.com` | Reads and analyzes URL |
+| Image | `image: a samurai in neon rain` | Generates image |
+| Video | `video: a wolf running through snow` | Generates 5-sec video |
+
+### Speed Tiers
+
+- **Simple queries** (e.g., "what time is it?") → Strategist only → ~5 seconds
+- **Complex queries** → Full 4-agent council → ~30-60 seconds
+
+---
+
+## 📱 Works Everywhere
+
+| Device | Status |
+|--------|--------|
+| Desktop (Chrome, Firefox, Edge) | ✅ Full support |
+| Tablet (iPad, Android) | ✅ Responsive layout |
+| Phone (iPhone, Android) | ✅ Mobile optimized |
+
+---
+
+## 🔧 Technical Details
+
+### File Structure
+
+```
+lm-shogunate-main/
+├── app.py           # Streamlit UI
+├── council.py       # AI council logic
+├── requirements.txt # Dependencies
+└── README.md        # This file
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AZURE_API_KEY` | ✅ | Azure AI Foundry API key |
+| `REPLICATE_API_TOKEN` | Optional | For video generation |
+| `SUPABASE_URL` | ✅ | Database URL |
+| `SUPABASE_KEY` | ✅ | Database key |
+| `APP_PASSWORD` | ✅ | Login password |
+
+### API Endpoints Used
+
+| Service | Endpoint |
+|---------|----------|
+| Claude | `https://[resource].openai.azure.com/anthropic/v1/messages` |
+| GPT/DeepSeek | `https://[resource].cognitiveservices.azure.com/openai/deployments/` |
+| DALL-E 3 | `https://[resource].openai.azure.com/openai/deployments/dall-e-3/` |
+| Kling Video | `https://api.replicate.com/v1/models/kwaivgi/kling-v2.5-turbo-pro/` |
+
+---
+
+## 🔓 About Uncensored Mode
+
+The system includes jailbreak prompts for maximum capability. Models respond to most requests without refusal.
+
+**Note**: Azure has provider-level content filters that cannot be bypassed. Some categories may still be restricted.
+
+---
+
+## 🐛 Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| "Azure API key not configured" | Check `AZURE_API_KEY` in Render |
+| "Anthropic Error 401" | API key is wrong |
+| "OpenAI Error 404" | Model name mismatch - check deployment names |
+| Video not generating | Check `REPLICATE_API_TOKEN` is set |
+| Login required every refresh | This is fixed in v3.0 |
+| Duplicate chats in sidebar | This is fixed in v3.0 |
+
+---
+
+## 💰 Costs
+
+| Service | Pricing |
+|---------|---------|
+| Azure Claude | ~$0.015 per 1K input tokens |
+| Azure GPT-5.2 | ~$0.01 per 1K input tokens |
+| Azure DeepSeek | ~$0.001 per 1K input tokens |
+| DALL-E 3 | ~$0.08 per image |
+| Kling Video | $0.07 per second of video |
+| Render | Free tier: 750 hours/month |
+| Supabase | Free tier: 500MB storage |
+
+**Estimated monthly cost**: $5-20 for moderate use
+
+---
+
+## 📜 License
+
+MIT License - Use freely.
+
+---
+
+## 🏯 Credits
+
+Built with:
+- [Streamlit](https://streamlit.io)
+- [Azure AI Foundry](https://ai.azure.com)
+- [Replicate](https://replicate.com)
+- [Supabase](https://supabase.com)
+
+---
+
+**THE COUNCIL AWAITS YOUR COMMAND** 👑
