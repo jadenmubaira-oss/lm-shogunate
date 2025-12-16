@@ -397,15 +397,101 @@ async function captureScreen() {
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AUTHENTICATION
+# AUTHENTICATION WITH PERSISTENT SESSIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 params = st.query_params
 
+# JavaScript for persistent session storage
+SESSION_STORAGE_JS = """
+<script>
+// Save session to localStorage AND sync to URL
+function saveSession(token, userId, email) {
+    localStorage.setItem('nc_token', token);
+    localStorage.setItem('nc_user_id', userId);
+    localStorage.setItem('nc_email', email);
+}
+
+// Get session from localStorage
+function getSession() {
+    return {
+        token: localStorage.getItem('nc_token'),
+        userId: localStorage.getItem('nc_user_id'),
+        email: localStorage.getItem('nc_email')
+    };
+}
+
+// Clear session from localStorage AND URL
+function clearSession() {
+    localStorage.removeItem('nc_token');
+    localStorage.removeItem('nc_user_id');
+    localStorage.removeItem('nc_email');
+    // Clear from URL too
+    const url = new URL(window.location);
+    url.searchParams.delete('nc_token');
+    url.searchParams.delete('nc_user_id');
+    url.searchParams.delete('nc_email');
+    window.history.replaceState({}, '', url);
+}
+
+// On page load, restore session from localStorage to URL params
+(function restoreSession() {
+    const session = getSession();
+    const url = new URL(window.location);
+    
+    // If we have a stored session but it's not in URL, add it
+    if (session.token && session.userId && !url.searchParams.has('nc_token')) {
+        url.searchParams.set('nc_token', session.token);
+        url.searchParams.set('nc_user_id', session.userId);
+        url.searchParams.set('nc_email', session.email || '');
+        // Reload with params so Streamlit can read them
+        window.location.replace(url.toString());
+    }
+})();
+</script>
+"""
+
+# Inject session storage JS
+st.markdown(SESSION_STORAGE_JS, unsafe_allow_html=True)
+
+# Check for token in query params (for localStorage restoration)
 def get_current_user():
-    """Get current user from session_state only (not URL - security fix)."""
-    if "user" in st.session_state:
+    """
+    Get current user with FULL PERSISTENCE:
+    1. Check session_state (fastest)
+    2. Check query params for stored token (survives server restart)
+    3. Verify token with Supabase
+    """
+    # Already in session
+    if "user" in st.session_state and st.session_state.user:
         return st.session_state.user
+    
+    # Check query params for restored token from localStorage
+    stored_token = params.get("nc_token")
+    stored_user_id = params.get("nc_user_id") 
+    stored_email = params.get("nc_email")
+    
+    if stored_token and stored_user_id:
+        # Verify token is still valid with Supabase
+        verified_user = council.verify_token(stored_token)
+        if verified_user:
+            # Token valid - restore session!
+            user_data = {
+                "id": verified_user.get("id", stored_user_id),
+                "email": verified_user.get("email", stored_email),
+                "token": stored_token
+            }
+            st.session_state.user = user_data
+            return user_data
+        else:
+            # Token expired - clear params
+            if "nc_token" in st.query_params:
+                del st.query_params["nc_token"]
+            if "nc_user_id" in st.query_params:
+                del st.query_params["nc_user_id"]
+            if "nc_email" in st.query_params:
+                del st.query_params["nc_email"]
+    
     return None
 
 def logout():
@@ -413,6 +499,12 @@ def logout():
         del st.session_state.user
     if "session_id" in st.session_state:
         del st.session_state.session_id
+    # Clear query params
+    for key in ["nc_token", "nc_user_id", "nc_email"]:
+        if key in st.query_params:
+            del st.query_params[key]
+    # Clear localStorage via JS
+    st.markdown('<script>clearSession();</script>', unsafe_allow_html=True)
     st.rerun()
 
 user = get_current_user()
@@ -462,8 +554,12 @@ if not user:
                     user_data, error = council.login_user(email, password)
                     if user_data:
                         st.session_state.user = user_data
-                        # SECURITY FIX: Don't store token in URL - it's shareable!
-                        # Token stays in session_state only (server-side)
+                        # Save to localStorage for persistence across refreshes
+                        st.markdown(f'''
+                        <script>
+                            saveSession("{user_data.get('token', '')}", "{user_data.get('id', '')}", "{user_data.get('email', '')}");
+                        </script>
+                        ''', unsafe_allow_html=True)
                         st.success("✅ Welcome back!")
                         st.rerun()
                     else:
