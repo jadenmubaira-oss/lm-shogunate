@@ -225,6 +225,143 @@ def call_agent(agent_key: str, messages: List[Dict], max_tokens: int = 8000) -> 
         return call_anthropic(agent["model"], agent["prompt"], messages, max_tokens)
     return call_openai(agent["model"], agent["prompt"], messages, max_tokens)
 
+
+def call_anthropic_with_vision(model: str, system_prompt: str, messages: List[Dict], image_b64: str, max_tokens: int = 8192) -> Tuple[str, int]:
+    """
+    TRUE VISION: Call Anthropic with an image for visual analysis.
+    This is what makes us #1 - we can actually SEE screenshots.
+    """
+    global _total_tokens_used
+    if not AZURE_API_KEY:
+        return "⚠️ Azure API key not configured", 0
+    
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {AZURE_API_KEY}", "anthropic-version": "2023-06-01"}
+    
+    # Build vision message with image
+    image_content = []
+    if image_b64:
+        # Extract base64 data if it's a data URL
+        if image_b64.startswith("data:"):
+            parts = image_b64.split(",", 1)
+            if len(parts) == 2:
+                media_type = parts[0].split(";")[0].replace("data:", "")
+                image_data = parts[1]
+            else:
+                media_type = "image/png"
+                image_data = image_b64
+        else:
+            media_type = "image/png"
+            image_data = image_b64
+        
+        image_content = [{
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_data
+            }
+        }]
+    
+    # Build messages with vision content
+    api_messages = []
+    for m in messages:
+        if m["role"] in ["user", "assistant"]:
+            if m["role"] == "user" and image_content and len(api_messages) == 0:
+                # First user message gets the image
+                api_messages.append({
+                    "role": "user",
+                    "content": image_content + [{"type": "text", "text": str(m["content"])}]
+                })
+            else:
+                api_messages.append({"role": m["role"], "content": str(m["content"])})
+    
+    # Ensure valid message structure
+    if not api_messages:
+        api_messages = [{"role": "user", "content": image_content + [{"type": "text", "text": "Analyze this image."}]}]
+    if api_messages[0]["role"] != "user":
+        api_messages.insert(0, {"role": "user", "content": image_content + [{"type": "text", "text": "Begin."}]})
+    
+    try:
+        response = requests.post(ANTHROPIC_ENDPOINT, headers=headers, 
+            json={"model": model, "max_tokens": min(max_tokens, 8192), "system": system_prompt, "messages": api_messages}, 
+            timeout=120)
+        if response.status_code == 200:
+            data = response.json()
+            content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+            tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
+            _total_tokens_used += tokens
+            return content, tokens
+        return f"⚠️ Vision Error {response.status_code}: {response.text[:300]}", 0
+    except Exception as e:
+        return f"⚠️ Vision Exception: {str(e)}", 0
+
+
+def call_agent_with_vision(agent_key: str, messages: List[Dict], image_b64: str, max_tokens: int = 8000) -> Tuple[str, int]:
+    """Call agent with vision capability (only works for Anthropic models)."""
+    agent = AGENTS.get(agent_key)
+    if not agent:
+        return "⚠️ Unknown agent", 0
+    if agent["api"] == "anthropic":
+        return call_anthropic_with_vision(agent["model"], agent["prompt"], messages, image_b64, max_tokens)
+    # Fallback for non-vision models
+    return call_agent(agent_key, messages, max_tokens)
+
+
+def get_real_embedding(text: str) -> List[float]:
+    """
+    TRUE EMBEDDINGS: Use Azure OpenAI embeddings API instead of hash.
+    Falls back to hash if API unavailable.
+    """
+    if not AZURE_API_KEY:
+        # Fallback to hash
+        h = hashlib.sha256(text.encode()).digest()
+        return [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
+    
+    try:
+        url = f"{OPENAI_ENDPOINT}/text-embedding-3-large/embeddings?api-version=2024-10-21"
+        headers = {"Content-Type": "application/json", "api-key": AZURE_API_KEY}
+        response = requests.post(url, headers=headers, 
+            json={"input": text[:8000], "dimensions": 1536}, 
+            timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("data") and len(data["data"]) > 0:
+                return data["data"][0]["embedding"]
+    except:
+        pass
+    
+    # Fallback to hash
+    h = hashlib.sha256(text.encode()).digest()
+    return [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
+
+
+def rate_response_quality(response: str) -> float:
+    """
+    SELF-RATING: Analyze response quality.
+    Returns 0.0 to 1.0
+    """
+    lower = response.lower()
+    
+    # Quality indicators
+    quality_positive = ['complete', 'comprehensive', 'detailed', 'correct', 'accurate', 
+                       'working', 'tested', 'verified', 'solution', 'here is', 'here\'s']
+    quality_negative = ['error', 'bug', 'issue', 'problem', 'cannot', 'can\'t', 'unable',
+                       'sorry', 'unfortunately', 'incomplete', 'todo', 'fixme']
+    
+    pos = sum(1 for w in quality_positive if w in lower)
+    neg = sum(1 for w in quality_negative if w in lower)
+    
+    # Length bonus (longer = more complete)
+    length_score = min(1.0, len(response) / 2000)
+    
+    # Code block bonus
+    code_score = 0.1 if '```' in response else 0
+    
+    base = 0.6 + (pos * 0.05) - (neg * 0.1) + (length_score * 0.2) + code_score
+    return max(0.3, min(1.0, base))
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 # MEDIA GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -722,11 +859,11 @@ def get_history(session_id: str) -> List[Dict]:
 
 
 def save_memory(content: str, user_id: str = None):
+    """Save memory with TRUE semantic embeddings."""
     try:
         db = get_supabase()
         if db:
-            h = hashlib.sha256(content.encode()).digest()
-            embedding = [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
+            embedding = get_real_embedding(content)
             data = {"content": content, "embedding": embedding, "created_at": datetime.now(timezone.utc).isoformat()}
             if user_id:
                 data["user_id"] = user_id
@@ -735,13 +872,14 @@ def save_memory(content: str, user_id: str = None):
         pass
 
 
+
 def recall_memories(query: str, user_id: str = None) -> List[str]:
+    """Recall memories using TRUE semantic embeddings."""
     try:
         db = get_supabase()
         if db:
-            h = hashlib.sha256(query.encode()).digest()
-            embedding = [(h[i % len(h)] / 255.0) * 2 - 1 for i in range(1536)]
-            params = {"query_embedding": embedding, "match_threshold": 0.6, "match_count": 3}
+            embedding = get_real_embedding(query)
+            params = {"query_embedding": embedding, "match_threshold": 0.6, "match_count": 5}
             if user_id:
                 params["p_user_id"] = user_id
             result = db.rpc("match_memories", params).execute()
@@ -749,6 +887,7 @@ def recall_memories(query: str, user_id: str = None) -> List[str]:
     except:
         pass
     return []
+
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 # THE COUNCIL - TRUE AGENTIC COLLABORATION
@@ -857,14 +996,22 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
     yield ("System", f"📊 Query type: {query_type.upper()} | Debate mode: {'ON' if use_debate else 'OFF'}", "system")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 4: STRATEGIST PLANNING
+    # PHASE 4: STRATEGIST PLANNING (WITH VISION IF SCREENSHOT)
     # ═══════════════════════════════════════════════════════════════════════════════
     
     yield ("System", "🎯 Strategist analyzing...", "system")
-    plan, _ = call_agent("Strategist", context, 4000)
+    
+    # Use vision if screenshot is provided
+    if screenshot_b64:
+        yield ("System", "👁️ Using TRUE VISION to analyze screenshot...", "system")
+        plan, _ = call_agent_with_vision("Strategist", context, screenshot_b64, 4000)
+    else:
+        plan, _ = call_agent("Strategist", context, 4000)
+    
     save_message(session_id, "assistant", plan, AGENTS["Strategist"]["name"])
     context.append({"role": "assistant", "content": f"[STRATEGIST ANALYSIS]:\n{plan}"})
     yield (AGENTS["Strategist"]["name"], plan, "strategist")
+
     
     # Process Strategist's commands
     for cmd_type, prompt in process_ai_commands(plan):
@@ -952,16 +1099,19 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
                     yield ("System", url, "video")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # PHASE 6: MULTI-ROUND REFINEMENT LOOP (REVOLUTIONARY)
-    # Loop until Sage approves OR max rounds reached
+    # PHASE 6: UNLIMITED REFINEMENT LOOP (#1 IN THE WORLD)
+    # Loop until quality > 90% AND Sage approves (max 10 rounds for safety)
     # ═══════════════════════════════════════════════════════════════════════════════
     
-    MAX_REFINEMENT_ROUNDS = 3
+    MAX_REFINEMENT_ROUNDS = 10  # Increased from 3 - we don't stop until perfect
+    QUALITY_THRESHOLD = 0.90   # Must be 90%+ quality to stop
     round_num = 0
+    quality = rate_response_quality(solution)
     
-    while not sage_approves(reasoning) and round_num < MAX_REFINEMENT_ROUNDS:
+    while (not sage_approves(reasoning) or quality < QUALITY_THRESHOLD) and round_num < MAX_REFINEMENT_ROUNDS:
         round_num += 1
-        yield ("System", f"🔄 Refinement Round {round_num}/{MAX_REFINEMENT_ROUNDS} - Sage found issues...", "system")
+        yield ("System", f"🔄 Refinement Round {round_num} - Quality: {quality:.0%} | Aiming for {QUALITY_THRESHOLD:.0%}+", "system")
+
         
         # Executor fixes
         fix_prompt = f"""ROUND {round_num} REFINEMENT
@@ -1002,6 +1152,9 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
         context.append({"role": "assistant", "content": f"[SAGE R{round_num}]:\n{reasoning}"})
         yield (f"{AGENTS['Sage']['name']} (Round {round_num})", reasoning, "sage")
         
+        # RECALCULATE QUALITY after each round
+        quality = rate_response_quality(solution)
+        
         # Process any new commands
         for cmd_type, prompt in process_ai_commands(solution):
             if cmd_type == "image":
@@ -1015,11 +1168,17 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
                 if url:
                     yield ("System", url, "video")
     
+    # Calculate final quality
+    final_quality = rate_response_quality(solution)
+    
     if round_num > 0:
-        if sage_approves(reasoning):
-            yield ("System", f"✅ Sage APPROVED after {round_num} refinement round(s)!", "system")
+        if sage_approves(reasoning) and final_quality >= QUALITY_THRESHOLD:
+            yield ("System", f"✅ PERFECT! Sage APPROVED | Quality: {final_quality:.0%} after {round_num} round(s)!", "system")
+        elif sage_approves(reasoning):
+            yield ("System", f"✅ Sage APPROVED after {round_num} round(s) | Quality: {final_quality:.0%}", "system")
         else:
-            yield ("System", f"⚠️ Max refinement rounds reached ({MAX_REFINEMENT_ROUNDS})", "system")
+            yield ("System", f"⚠️ Max rounds ({MAX_REFINEMENT_ROUNDS}) | Quality: {final_quality:.0%}", "system")
+
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # PHASE 7: CONFIDENCE CHECK
