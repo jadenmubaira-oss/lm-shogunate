@@ -619,17 +619,366 @@ def web_search(query: str) -> str:
 
 
 def read_url(url: str) -> str:
+    """
+    ENHANCED URL READING - Handles GitHub repos, regular websites, and more.
+    """
+    try:
+        # GITHUB SPECIAL HANDLING
+        if 'github.com' in url:
+            return read_github(url)
+        
+        # REGULAR WEBSITE
+        response = requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        title = soup.find('title')
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'form']):
+            tag.decompose()
+        
+        # Try to find main content
+        main = soup.find('main') or soup.find('article') or soup.find('[role="main"]') or soup.find('body')
+        
+        if main:
+            # Get all text content
+            text_elements = main.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'li', 'td', 'th', 'pre', 'code'])
+            text = []
+            for e in text_elements[:60]:
+                content = e.get_text().strip()
+                if len(content) > 15:
+                    text.append(content)
+            
+            return f"**{title.get_text() if title else 'Page'}**\n\n" + "\n\n".join(text[:40])[:10000]
+        
+        return f"**{title.get_text() if title else 'Page'}** - Could not extract main content"
+        
+    except Exception as e:
+        return f"URL error: {str(e)}"
+
+
+def read_github(url: str) -> str:
+    """
+    GITHUB SPECIAL HANDLER - Can read repos, files, and navigate.
+    Uses GitHub API for reliable access.
+    """
+    try:
+        # Parse GitHub URL
+        # Formats: github.com/owner/repo, github.com/owner/repo/tree/branch/path, github.com/owner/repo/blob/branch/path
+        parts = url.replace('https://', '').replace('http://', '').replace('github.com/', '').split('/')
+        
+        if len(parts) < 2:
+            return "Invalid GitHub URL - need at least owner/repo"
+        
+        owner, repo = parts[0], parts[1]
+        repo = repo.replace('.git', '')
+        
+        # Determine what we're looking at
+        if len(parts) == 2:
+            # Root of repo - get repo info + file list
+            return get_github_repo_contents(owner, repo)
+        
+        if len(parts) >= 4:
+            action = parts[2]  # 'tree' or 'blob'
+            branch = parts[3]
+            path = '/'.join(parts[4:]) if len(parts) > 4 else ''
+            
+            if action == 'blob':
+                # Reading a specific file
+                return get_github_file(owner, repo, branch, path)
+            elif action == 'tree':
+                # Reading a directory
+                return get_github_repo_contents(owner, repo, path)
+        
+        return get_github_repo_contents(owner, repo)
+        
+    except Exception as e:
+        return f"GitHub error: {str(e)}"
+
+
+def get_github_repo_contents(owner: str, repo: str, path: str = "") -> str:
+    """Get contents of a GitHub repo directory using API."""
+    try:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+        response = requests.get(api_url, headers={
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'NeuralCouncil/1.0'
+        }, timeout=15)
+        
+        if response.status_code == 404:
+            return f"Repository not found: {owner}/{repo}"
+        
+        if response.status_code != 200:
+            # Fallback to web scraping
+            return read_github_web(f"https://github.com/{owner}/{repo}")
+        
+        data = response.json()
+        
+        if isinstance(data, list):
+            # Directory listing
+            result = f"📂 **GitHub: {owner}/{repo}**\n"
+            if path:
+                result += f"📁 Path: /{path}\n"
+            result += "\n**Contents:**\n"
+            
+            dirs = [f"📁 {item['name']}/" for item in data if item['type'] == 'dir']
+            files = [f"📄 {item['name']} ({item.get('size', 0):,} bytes)" for item in data if item['type'] == 'file']
+            
+            result += "\n".join(dirs[:20]) + "\n" + "\n".join(files[:30])
+            result += f"\n\n**To read a file, ask me to look at the specific file path.**"
+            return result
+        
+        return "Unexpected GitHub response format"
+        
+    except Exception as e:
+        return f"GitHub API error: {str(e)}"
+
+
+def get_github_file(owner: str, repo: str, branch: str, path: str) -> str:
+    """Read a specific file from GitHub."""
+    try:
+        # Use raw content URL
+        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+        response = requests.get(raw_url, timeout=15)
+        
+        if response.status_code == 404:
+            return f"File not found: {path}"
+        
+        content = response.text
+        
+        # Detect language from extension
+        ext = path.split('.')[-1].lower() if '.' in path else ''
+        lang = {
+            'py': 'python', 'js': 'javascript', 'ts': 'typescript',
+            'html': 'html', 'css': 'css', 'json': 'json',
+            'md': 'markdown', 'yaml': 'yaml', 'yml': 'yaml'
+        }.get(ext, '')
+        
+        result = f"📄 **{path}** from {owner}/{repo}\n\n"
+        if lang:
+            result += f"```{lang}\n{content[:12000]}\n```"
+        else:
+            result += content[:12000]
+        
+        if len(content) > 12000:
+            result += f"\n\n... (truncated, file is {len(content):,} chars)"
+        
+        return result
+        
+    except Exception as e:
+        return f"GitHub file error: {str(e)}"
+
+
+def read_github_web(url: str) -> str:
+    """Fallback: scrape GitHub page if API fails."""
     try:
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        title = soup.find('title')
-        for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
-            tag.decompose()
-        main = soup.find('main') or soup.find('article') or soup.find('body')
-        text = [e.get_text().strip() for e in main.find_all(['h1', 'h2', 'h3', 'p', 'li'])[:40] if len(e.get_text().strip()) > 20] if main else []
-        return f"**{title.get_text() if title else 'Page'}**\n\n" + "\n\n".join(text[:25])[:8000]
+        
+        # Get README content if available
+        readme = soup.find('article', class_='markdown-body')
+        if readme:
+            return f"**GitHub Repository README:**\n\n{readme.get_text()[:8000]}"
+        
+        # Get file list
+        files = soup.find_all('a', class_='js-navigation-open')
+        if files:
+            file_list = [f.get_text().strip() for f in files[:30]]
+            return f"**Files in repository:**\n" + "\n".join(file_list)
+        
+        return "Could not parse GitHub page"
     except Exception as e:
-        return f"URL error: {str(e)}"
+        return f"GitHub scrape error: {str(e)}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+# FULL AGENTIC CAPABILITIES - BROWSER AUTOMATION, API CALLS, FILE OPS
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+def browse_website(url: str, actions: List[Dict] = None) -> str:
+    """
+    FULL BROWSER AUTOMATION - Can click, type, navigate, scroll, and extract content.
+    Uses Playwright for JavaScript-rendered content.
+    
+    Actions format: [{"action": "click", "selector": "button"}, {"action": "type", "selector": "input", "text": "hello"}]
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        # Fallback to simple request if Playwright not installed
+        return read_url(url)
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            )
+            page = context.new_page()
+            page.set_default_timeout(15000)
+            
+            # Navigate to URL
+            page.goto(url, wait_until='domcontentloaded')
+            page.wait_for_timeout(2000)  # Wait for JS to render
+            
+            # Execute actions if provided
+            if actions:
+                for action in actions[:10]:  # Limit to 10 actions for safety
+                    try:
+                        if action.get('action') == 'click':
+                            page.click(action.get('selector', ''))
+                            page.wait_for_timeout(1000)
+                        elif action.get('action') == 'type':
+                            page.fill(action.get('selector', ''), action.get('text', ''))
+                        elif action.get('action') == 'scroll':
+                            page.evaluate('window.scrollBy(0, 500)')
+                        elif action.get('action') == 'wait':
+                            page.wait_for_timeout(int(action.get('ms', 1000)))
+                    except:
+                        pass
+            
+            # Extract content
+            title = page.title()
+            
+            # Get main text content
+            content = page.evaluate('''() => {
+                const main = document.querySelector('main, article, [role="main"], .content, #content') || document.body;
+                const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, null, false);
+                let text = [];
+                while(walker.nextNode()) {
+                    const txt = walker.currentNode.textContent.trim();
+                    if(txt.length > 20) text.push(txt);
+                }
+                return text.slice(0, 50).join('\\n\\n');
+            }''')
+            
+            # Get all links for navigation help
+            links = page.evaluate('''() => {
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .slice(0, 20)
+                    .map(a => ({text: a.innerText.trim().slice(0, 50), href: a.href}))
+                    .filter(l => l.text.length > 2);
+            }''')
+            
+            browser.close()
+            
+            result = f"**{title}**\n\n{content[:8000]}"
+            if links:
+                result += "\n\n**Links on page:**\n"
+                result += "\n".join([f"- [{l['text']}]({l['href']})" for l in links[:15]])
+            
+            return result
+            
+    except Exception as e:
+        # Fallback to simple request
+        return read_url(url) + f"\n\n(Browser automation failed: {str(e)}, used fallback)"
+
+
+def call_api(url: str, method: str = "GET", data: Dict = None, headers: Dict = None) -> str:
+    """
+    CALL ANY JSON API - For fetching data from APIs.
+    Supports GET, POST, PUT, DELETE.
+    """
+    try:
+        method = method.upper()
+        req_headers = {
+            'User-Agent': 'NeuralCouncil/1.0',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        if headers:
+            req_headers.update(headers)
+        
+        if method == "GET":
+            response = requests.get(url, headers=req_headers, timeout=15)
+        elif method == "POST":
+            response = requests.post(url, json=data, headers=req_headers, timeout=15)
+        elif method == "PUT":
+            response = requests.put(url, json=data, headers=req_headers, timeout=15)
+        elif method == "DELETE":
+            response = requests.delete(url, headers=req_headers, timeout=15)
+        else:
+            return f"Unsupported method: {method}"
+        
+        # Try to parse as JSON
+        try:
+            json_data = response.json()
+            return f"**API Response ({response.status_code}):**\n```json\n{json.dumps(json_data, indent=2)[:8000]}\n```"
+        except:
+            return f"**API Response ({response.status_code}):**\n{response.text[:5000]}"
+            
+    except Exception as e:
+        return f"API error: {str(e)}"
+
+
+def download_file(url: str) -> Tuple[bool, str]:
+    """
+    DOWNLOAD FILE - Downloads a file and returns its content or path.
+    For text files, returns content. For binary, indicates success.
+    """
+    try:
+        response = requests.get(url, timeout=30, stream=True)
+        content_type = response.headers.get('content-type', '')
+        
+        # For text content, return it directly
+        if 'text' in content_type or 'json' in content_type or 'javascript' in content_type:
+            return True, response.text[:15000]
+        
+        # For binary, just indicate we can access it
+        size = len(response.content)
+        return True, f"File downloaded successfully ({size:,} bytes, type: {content_type})"
+        
+    except Exception as e:
+        return False, f"Download error: {str(e)}"
+
+
+def take_screenshot(url: str) -> Tuple[bool, str]:
+    """
+    TAKE SCREENSHOT - Captures a screenshot of a webpage.
+    Returns base64 encoded image data.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False, "Playwright not installed"
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1280, 'height': 720})
+            page.goto(url, wait_until='domcontentloaded')
+            page.wait_for_timeout(2000)
+            
+            screenshot = page.screenshot(type='png')
+            browser.close()
+            
+            b64 = base64.b64encode(screenshot).decode()
+            return True, f"data:image/png;base64,{b64}"
+            
+    except Exception as e:
+        return False, f"Screenshot error: {str(e)}"
+
+
+def extract_structured_data(url: str, selectors: Dict[str, str]) -> str:
+    """
+    EXTRACT STRUCTURED DATA - Extract specific elements from a page using CSS selectors.
+    
+    Example: extract_structured_data("https://example.com", {"title": "h1", "price": ".price", "description": "p.desc"})
+    """
+    try:
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        result = {}
+        for key, selector in selectors.items():
+            elements = soup.select(selector)
+            if elements:
+                result[key] = [e.get_text().strip() for e in elements[:5]]
+        
+        return f"**Extracted Data:**\n```json\n{json.dumps(result, indent=2)}\n```"
+        
+    except Exception as e:
+        return f"Extraction error: {str(e)}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
