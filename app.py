@@ -728,7 +728,29 @@ with col1:
             st.session_state.screenshot = screenshot_b64
             st.success("✅ Ready!")
     
-    uploaded = st.file_uploader("📎 Attach", type=['pdf', 'txt', 'py', 'js', 'json', 'md', 'html', 'css', 'png', 'jpg'])
+    # MULTI-FILE UPLOAD with expanded file types
+    uploaded_files = st.file_uploader(
+        "📎 Attach Files", 
+        accept_multiple_files=True,
+        type=[
+            # Code files
+            'py', 'js', 'ts', 'jsx', 'tsx', 'java', 'c', 'cpp', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt',
+            # Web files  
+            'html', 'css', 'scss', 'sass', 'less', 'vue', 'svelte',
+            # Data files
+            'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'sql',
+            # Documents
+            'txt', 'md', 'rst', 'pdf', 'doc', 'docx',
+            # Config files
+            'env', 'ini', 'cfg', 'conf', 'sh', 'bat', 'ps1',
+            # Images
+            'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp',
+            # Archives (will show file list)
+            'zip', 'tar', 'gz',
+            # Misc
+            'log', 'gitignore', 'dockerfile', 'makefile'
+        ]
+    )
     
     try:
         history = council.get_history(st.session_state.session_id)
@@ -791,32 +813,64 @@ with col1:
     user_input = st.chat_input("Ask anything... (image: prompt, video: prompt, search: query)")
     
     if user_input:
-        # Handle uploaded file
-        uploaded_image_b64 = None
-        if uploaded:
-            try:
-                if uploaded.type == "application/pdf":
-                    from PyPDF2 import PdfReader
-                    file_text = "\n".join([p.extract_text() or "" for p in PdfReader(uploaded).pages])
-                    user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:8000]}\n```"
-                elif uploaded.type.startswith("image/"):
-                    # FIXED: Encode image as base64 so AI can SEE it!
-                    import base64
-                    uploaded.seek(0)
-                    image_bytes = uploaded.read()
-                    uploaded_image_b64 = f"data:{uploaded.type};base64,{base64.b64encode(image_bytes).decode()}"
-                    user_input += f"\n\n[IMAGE ATTACHED: {uploaded.name}]"
-                else:
-                    file_text = uploaded.read().decode('utf-8', errors='ignore')
-                    user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:8000]}\n```"
-            except Exception as e:
-                user_input += f"\n\n[FILE ERROR: {str(e)}]"
+        # Handle MULTIPLE uploaded files
+        uploaded_images_b64 = []
+        
+        if uploaded_files:
+            for uploaded in uploaded_files:
+                try:
+                    file_ext = uploaded.name.split('.')[-1].lower() if '.' in uploaded.name else ''
+                    
+                    if uploaded.type == "application/pdf":
+                        from PyPDF2 import PdfReader
+                        uploaded.seek(0)
+                        file_text = "\n".join([p.extract_text() or "" for p in PdfReader(uploaded).pages])
+                        user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:15000]}\n```"
+                    
+                    elif uploaded.type and uploaded.type.startswith("image/"):
+                        # Encode image as base64 so AI can SEE it
+                        import base64
+                        uploaded.seek(0)
+                        image_bytes = uploaded.read()
+                        img_b64 = f"data:{uploaded.type};base64,{base64.b64encode(image_bytes).decode()}"
+                        uploaded_images_b64.append(img_b64)
+                        user_input += f"\n\n[IMAGE ATTACHED: {uploaded.name}]"
+                    
+                    elif file_ext in ['zip', 'tar', 'gz']:
+                        # For archives, just note them
+                        user_input += f"\n\n[ARCHIVE: {uploaded.name} - {uploaded.size:,} bytes]"
+                    
+                    else:
+                        # Read as text - larger limit for code files
+                        uploaded.seek(0)
+                        try:
+                            file_text = uploaded.read().decode('utf-8', errors='ignore')
+                        except:
+                            file_text = str(uploaded.read())
+                        
+                        # Detect language for syntax highlighting
+                        lang_map = {
+                            'py': 'python', 'js': 'javascript', 'ts': 'typescript', 'jsx': 'jsx', 'tsx': 'tsx',
+                            'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'c', 'cs': 'csharp', 'go': 'go',
+                            'rs': 'rust', 'rb': 'ruby', 'php': 'php', 'swift': 'swift', 'kt': 'kotlin',
+                            'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json', 'xml': 'xml',
+                            'yaml': 'yaml', 'yml': 'yaml', 'sql': 'sql', 'md': 'markdown', 'sh': 'bash'
+                        }
+                        lang = lang_map.get(file_ext, '')
+                        
+                        # Use larger limit for files (15K chars)
+                        user_input += f"\n\n[FILE: {uploaded.name}]\n```{lang}\n{file_text[:15000]}\n```"
+                        if len(file_text) > 15000:
+                            user_input += f"\n(truncated - full file is {len(file_text):,} chars)"
+                            
+                except Exception as e:
+                    user_input += f"\n\n[FILE ERROR: {uploaded.name} - {str(e)}]"
         
         with st.chat_message("user", avatar="👤"):
-            st.markdown(user_input)
+            st.markdown(user_input[:3000] + ("..." if len(user_input) > 3000 else ""))
         
-        # Use uploaded image OR screenshot (prefer uploaded image)
-        screenshot = uploaded_image_b64 or st.session_state.get("screenshot")
+        # Use uploaded images OR screenshot
+        screenshot = uploaded_images_b64[0] if uploaded_images_b64 else st.session_state.get("screenshot")
         st.session_state.screenshot = None
         
         with st.status("⚡ Council processing...", expanded=True) as status:
@@ -876,20 +930,42 @@ with col2:
     st.markdown("## 📄 Artifacts")
     
     code = st.session_state.artifact
-    lang = "python"
+    
+    # Smart language detection
+    lang = "text"
+    ext = "txt"
     if code.strip().startswith(("{", "[")):
-        lang = "json"
-    elif "<html" in code.lower():
-        lang = "html"
-    elif "function" in code or "const " in code:
-        lang = "javascript"
+        lang, ext = "json", "json"
+    elif "<html" in code.lower() or "<!doctype" in code.lower():
+        lang, ext = "html", "html"
+    elif "function " in code or "const " in code or "=>" in code:
+        lang, ext = "javascript", "js"
+    elif "def " in code or "import " in code or "class " in code:
+        lang, ext = "python", "py"
+    elif "package " in code or "public class" in code:
+        lang, ext = "java", "java"
+    elif code.strip().startswith("/*") or "#include" in code:
+        lang, ext = "c", "c"
+    elif "<" in code and ">" in code and "/" in code:
+        lang, ext = "xml", "xml"
+    elif "---" in code and ":" in code:
+        lang, ext = "yaml", "yaml"
+    elif "SELECT " in code.upper() or "INSERT " in code.upper():
+        lang, ext = "sql", "sql"
+    elif code.strip().startswith("#"):
+        lang, ext = "markdown", "md"
+    elif code.strip().startswith("@") or "color:" in code:
+        lang, ext = "css", "css"
     
     st.code(code, language=lang, line_numbers=True)
     
+    # Custom filename input
+    default_name = f"artifact.{ext}"
+    filename = st.text_input("📝 Filename", value=default_name, key="artifact_filename", placeholder="myfile.py")
+    
     c1, c2 = st.columns(2)
     with c1:
-        ext = {"python": "py", "javascript": "js", "json": "json", "html": "html"}.get(lang, "txt")
-        st.download_button("💾 Download", code, f"code.{ext}", use_container_width=True)
+        st.download_button("💾 Download", code, filename, use_container_width=True)
     with c2:
         if st.button("🗑️ Clear", use_container_width=True):
             st.session_state.artifact = "# Cleared"
