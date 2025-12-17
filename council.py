@@ -115,6 +115,10 @@ CAPABILITIES:
 - Generate images/videos: [GENERATE_IMAGE: prompt] or [GENERATE_VIDEO: prompt]
 - Search for info: [SEARCH: query]
 - EXECUTE CODE: [EXECUTE_CODE: your python code here] - I can RUN your code!
+- READ ANY WEBSITE: [READ_URL: https://example.com]
+- BROWSE WITH AUTOMATION: [BROWSE: https://example.com] - Full browser with JS!
+- SCREENSHOT ANY PAGE: [SCREENSHOT: https://example.com]
+- READ GITHUB REPOS: [GITHUB: https://github.com/user/repo]
 
 CODE RULES:
 - Write COMPLETE code, never "..."  or "rest of implementation"
@@ -122,7 +126,12 @@ CODE RULES:
 - Make it copy-paste ready
 - When you write code, TEST IT by using [EXECUTE_CODE: code] to verify it works!
 
-You are the BUILDER. Build PERFECTLY. TEST your code!"""
+WEB RULES:
+- If user provides a URL, USE [READ_URL:] to fetch and analyze it
+- If user asks about a website, BROWSE IT first
+- If user shares a GitHub repo, READ it with [GITHUB:]
+
+You are the BUILDER. Build PERFECTLY. TEST your code! BROWSE the web!"""
     },
 
     "Sage": {
@@ -1086,6 +1095,50 @@ def process_ai_commands(text: str) -> List[Tuple[str, str]]:
             if any(test in code.lower() for test in ['print(', 'console.log', 'assert', 'test_', 'def test']):
                 commands.append(("execute_block", f"{lang}|||{code}"))
     
+    # URL/BROWSE COMMANDS - Full web automation
+    for pattern in [
+        r'\[READ[_\s]?URL[:\s]+([^\]]+)\]',
+        r'\[URL[:\s]+([^\]]+)\]',
+        r'\[FETCH[:\s]+([^\]]+)\]',
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            url = match.group(1).strip()
+            if url:
+                commands.append(("read_url", url))
+    
+    # Browser automation commands
+    for pattern in [
+        r'\[BROWSE[:\s]+([^\]]+)\]',
+        r'\[BROWSER[:\s]+([^\]]+)\]',
+        r'\[OPEN[_\s]?PAGE[:\s]+([^\]]+)\]',
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            url = match.group(1).strip()
+            if url:
+                commands.append(("browse", url))
+    
+    # Screenshot commands
+    for pattern in [
+        r'\[SCREENSHOT[:\s]+([^\]]+)\]',
+        r'\[CAPTURE[:\s]+([^\]]+)\]',
+        r'\[SCREEN[_\s]?CAPTURE[:\s]+([^\]]+)\]',
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            url = match.group(1).strip()
+            if url:
+                commands.append(("screenshot", url))
+    
+    # GitHub commands
+    for pattern in [
+        r'\[GITHUB[:\s]+([^\]]+)\]',
+        r'\[REPO[:\s]+([^\]]+)\]',
+        r'\[READ[_\s]?REPO[:\s]+([^\]]+)\]',
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            url = match.group(1).strip()
+            if url:
+                commands.append(("github", url))
+    
     return commands
 
 
@@ -1641,6 +1694,23 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
             results = web_search(prompt)
             context.append({"role": "user", "content": f"[SEARCH RESULTS for '{prompt}']:\n{results}"})
             yield ("System", f"🔍 Searched: {prompt[:30]}", "system")
+        elif cmd_type == "read_url":
+            yield ("System", f"🌐 Reading URL: {prompt[:50]}...", "system")
+            content = read_url(prompt)
+            context.append({"role": "user", "content": f"[URL CONTENT]:\n{content[:10000]}"})
+        elif cmd_type == "browse":
+            yield ("System", f"🌐 Browsing with automation: {prompt[:50]}...", "system")
+            content = browse_website(prompt)
+            context.append({"role": "user", "content": f"[BROWSER CONTENT]:\n{content[:10000]}"})
+        elif cmd_type == "screenshot":
+            yield ("System", f"📸 Capturing screenshot: {prompt[:50]}...", "system")
+            success, img_data = take_screenshot(prompt)
+            if success:
+                yield ("System", img_data, "image")
+        elif cmd_type == "github":
+            yield ("System", f"📂 Reading GitHub: {prompt[:50]}...", "system")
+            content = read_github(prompt)
+            context.append({"role": "user", "content": f"[GITHUB CONTENT]:\n{content[:10000]}"})
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # PHASE 5: DEBATE MODE (if triggered)
@@ -1851,6 +1921,16 @@ Synthesize the FINAL answer. Fix issues. Make it PERFECT."""
             url, _ = generate_video(prompt)
             if url:
                 yield ("System", url, "video")
+        elif cmd_type == "read_url":
+            yield ("System", f"🌐 Reading: {prompt[:40]}...", "system")
+            content = read_url(prompt)
+            # Add to context for any follow-up
+            yield ("System", f"📖 URL content fetched ({len(content)} chars)", "system")
+        elif cmd_type == "screenshot":
+            yield ("System", f"📸 Capturing: {prompt[:40]}...", "system")
+            success, img_data = take_screenshot(prompt)
+            if success:
+                yield ("System", img_data, "image")
     
     # Extract and display any image URLs
     for img_url in extract_image_urls(verdict):

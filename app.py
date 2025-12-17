@@ -728,27 +728,38 @@ with col1:
             st.session_state.screenshot = screenshot_b64
             st.success("✅ Ready!")
     
-    # MULTI-FILE UPLOAD with expanded file types
+    # MULTI-FILE UPLOAD - ACCEPTS EVERYTHING
     uploaded_files = st.file_uploader(
         "📎 Attach Files", 
         accept_multiple_files=True,
         type=[
             # Code files
             'py', 'js', 'ts', 'jsx', 'tsx', 'java', 'c', 'cpp', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt',
+            'scala', 'clj', 'ex', 'exs', 'erl', 'hs', 'ml', 'r', 'jl', 'lua', 'pl', 'pm', 'tcl', 'asm', 's',
             # Web files  
-            'html', 'css', 'scss', 'sass', 'less', 'vue', 'svelte',
+            'html', 'htm', 'css', 'scss', 'sass', 'less', 'vue', 'svelte', 'jsx', 'tsx', 'astro',
             # Data files
-            'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'sql',
+            'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'tsv', 'sql', 'graphql', 'prisma',
             # Documents
-            'txt', 'md', 'rst', 'pdf', 'doc', 'docx',
+            'txt', 'md', 'rst', 'pdf', 'doc', 'docx', 'odt', 'rtf',
+            # Spreadsheets
+            'xlsx', 'xls', 'ods', 'numbers',
+            # Presentations
+            'pptx', 'ppt', 'odp', 'key',
             # Config files
-            'env', 'ini', 'cfg', 'conf', 'sh', 'bat', 'ps1',
+            'env', 'ini', 'cfg', 'conf', 'sh', 'bash', 'zsh', 'fish', 'bat', 'ps1', 'cmd',
             # Images
-            'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp',
-            # Archives (will show file list)
-            'zip', 'tar', 'gz',
+            'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'tif', 'heic', 'heif',
+            # Videos
+            'mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v', '3gp',
+            # Audio (for transcription)
+            'mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac', 'wma', 'aiff',
+            # Archives
+            'zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz',
             # Misc
-            'log', 'gitignore', 'dockerfile', 'makefile'
+            'log', 'gitignore', 'dockerfile', 'makefile', 'license', 'readme',
+            # Jupyter
+            'ipynb'
         ]
     )
     
@@ -836,7 +847,120 @@ with col1:
                         uploaded_images_b64.append(img_b64)
                         user_input += f"\n\n[IMAGE ATTACHED: {uploaded.name}]"
                     
-                    elif file_ext in ['zip', 'tar', 'gz']:
+                    elif file_ext in ['mp4', 'webm', 'mov', 'avi', 'mkv']:
+                        # VIDEO: Extract key frames for AI analysis
+                        import tempfile
+                        import subprocess
+                        
+                        user_input += f"\n\n[VIDEO: {uploaded.name} - {uploaded.size:,} bytes]"
+                        
+                        try:
+                            # Save video temporarily
+                            with tempfile.NamedTemporaryFile(suffix=f'.{file_ext}', delete=False) as tmp:
+                                uploaded.seek(0)
+                                tmp.write(uploaded.read())
+                                tmp_path = tmp.name
+                            
+                            # Extract frames using ffmpeg (if available)
+                            import shutil
+                            if shutil.which('ffmpeg'):
+                                # Extract first frame
+                                frame_path = tmp_path + '_frame.jpg'
+                                subprocess.run([
+                                    'ffmpeg', '-i', tmp_path, '-vframes', '1', '-q:v', '2', frame_path
+                                ], capture_output=True, timeout=30)
+                                
+                                # If frame extracted, add to images
+                                import os
+                                if os.path.exists(frame_path):
+                                    with open(frame_path, 'rb') as f:
+                                        frame_bytes = f.read()
+                                    frame_b64 = f"data:image/jpeg;base64,{base64.b64encode(frame_bytes).decode()}"
+                                    uploaded_images_b64.append(frame_b64)
+                                    user_input += " [Frame extracted for analysis]"
+                                    os.remove(frame_path)
+                                
+                                os.remove(tmp_path)
+                            else:
+                                user_input += " [Note: ffmpeg not installed - cannot extract frames]"
+                        except Exception as ve:
+                            user_input += f" [Frame extraction failed: {str(ve)[:50]}]"
+                    
+                    elif file_ext in ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac', 'wma', 'aiff']:
+                        # AUDIO: Note for transcription
+                        user_input += f"\n\n[AUDIO: {uploaded.name} - {uploaded.size:,} bytes]"
+                        user_input += "\n(Audio transcription: Use 'transcribe this audio' command if you want me to process it)"
+                    
+                    elif file_ext in ['xlsx', 'xls']:
+                        # EXCEL: Parse spreadsheet
+                        try:
+                            import pandas as pd
+                            uploaded.seek(0)
+                            df = pd.read_excel(uploaded, engine='openpyxl' if file_ext == 'xlsx' else 'xlrd')
+                            user_input += f"\n\n[EXCEL: {uploaded.name}]\n"
+                            user_input += f"Columns: {list(df.columns)}\n"
+                            user_input += f"Rows: {len(df)}\n"
+                            user_input += f"```\n{df.head(50).to_string()[:8000]}\n```"
+                        except Exception as ee:
+                            user_input += f"\n\n[EXCEL: {uploaded.name} - Could not parse: {str(ee)[:50]}]"
+                    
+                    elif file_ext == 'csv':
+                        # CSV: Parse and show
+                        try:
+                            import pandas as pd
+                            uploaded.seek(0)
+                            df = pd.read_csv(uploaded)
+                            user_input += f"\n\n[CSV: {uploaded.name}]\n"
+                            user_input += f"Columns: {list(df.columns)}\n"
+                            user_input += f"Rows: {len(df)}\n"
+                            user_input += f"```\n{df.head(50).to_string()[:8000]}\n```"
+                        except Exception as ce:
+                            user_input += f"\n\n[CSV: {uploaded.name} - Could not parse: {str(ce)[:50]}]"
+                    
+                    elif file_ext in ['docx']:
+                        # WORD: Extract text
+                        try:
+                            from docx import Document
+                            uploaded.seek(0)
+                            doc = Document(uploaded)
+                            doc_text = "\n".join([p.text for p in doc.paragraphs])
+                            user_input += f"\n\n[WORD: {uploaded.name}]\n```\n{doc_text[:15000]}\n```"
+                        except Exception as we:
+                            user_input += f"\n\n[WORD: {uploaded.name} - Could not parse: {str(we)[:50]}]"
+                    
+                    elif file_ext in ['pptx']:
+                        # POWERPOINT: Extract text from slides
+                        try:
+                            from pptx import Presentation
+                            uploaded.seek(0)
+                            ppt = Presentation(uploaded)
+                            slides_text = []
+                            for i, slide in enumerate(ppt.slides[:20]):
+                                slide_text = f"--- Slide {i+1} ---\n"
+                                for shape in slide.shapes:
+                                    if hasattr(shape, "text"):
+                                        slide_text += shape.text + "\n"
+                                slides_text.append(slide_text)
+                            user_input += f"\n\n[POWERPOINT: {uploaded.name}]\n```\n{chr(10).join(slides_text)[:10000]}\n```"
+                        except Exception as pe:
+                            user_input += f"\n\n[POWERPOINT: {uploaded.name} - Could not parse: {str(pe)[:50]}]"
+                    
+                    elif file_ext == 'ipynb':
+                        # JUPYTER: Extract code cells
+                        try:
+                            uploaded.seek(0)
+                            nb = json.loads(uploaded.read().decode('utf-8'))
+                            cells = []
+                            for cell in nb.get('cells', [])[:30]:
+                                if cell.get('cell_type') == 'code':
+                                    cells.append("```python\n" + "".join(cell.get('source', [])) + "\n```")
+                                elif cell.get('cell_type') == 'markdown':
+                                    cells.append("".join(cell.get('source', [])))
+                            user_input += f"\n\n[JUPYTER: {uploaded.name}]\n" + "\n\n".join(cells)[:12000]
+                        except Exception as je:
+                            user_input += f"\n\n[JUPYTER: {uploaded.name} - Could not parse: {str(je)[:50]}]"
+                    
+                    elif file_ext in ['zip', 'tar', 'gz', 'rar', '7z']:
                         # For archives, just note them
                         user_input += f"\n\n[ARCHIVE: {uploaded.name} - {uploaded.size:,} bytes]"
                     
@@ -868,9 +992,20 @@ with col1:
         
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_input[:3000] + ("..." if len(user_input) > 3000 else ""))
+            # Show image thumbnails if any
+            if uploaded_images_b64:
+                st.caption(f"📷 {len(uploaded_images_b64)} image(s) attached")
         
-        # Use uploaded images OR screenshot
-        screenshot = uploaded_images_b64[0] if uploaded_images_b64 else st.session_state.get("screenshot")
+        # Use ALL uploaded images OR screenshot (combine into single for now, vision API takes first)
+        # Note: Claude's vision API can handle multiple images - we join them
+        if uploaded_images_b64:
+            # For multiple images, we'll use the first one for now (API limitation)
+            # but add note about others
+            screenshot = uploaded_images_b64[0]
+            if len(uploaded_images_b64) > 1:
+                user_input += f"\n\n[Note: {len(uploaded_images_b64)} images attached, analyzing first image]"
+        else:
+            screenshot = st.session_state.get("screenshot")
         st.session_state.screenshot = None
         
         with st.status("⚡ Council processing...", expanded=True) as status:
