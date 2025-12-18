@@ -465,13 +465,40 @@ async function captureScreen() {
 
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "neural2024")  # Change this or set env var
 
-# JavaScript for persistent site unlock
+# JavaScript for persistent site unlock - ENHANCED
 SITE_UNLOCK_JS = """
 <script>
-// Check if site is unlocked in localStorage
+// ENHANCED SITE UNLOCK PERSISTENCE
+// Uses: localStorage + sessionStorage + cookie + URL params
+
+function saveSiteUnlock() {
+    localStorage.setItem('nc_site_unlocked', 'true');
+    sessionStorage.setItem('nc_site_unlocked', 'true');
+    // Also set a cookie for extra persistence (7 days)
+    document.cookie = 'nc_site_unlocked=true; max-age=604800; path=/; SameSite=Lax';
+}
+
+function isSiteUnlocked() {
+    // Check all storage methods
+    if (localStorage.getItem('nc_site_unlocked') === 'true') return true;
+    if (sessionStorage.getItem('nc_site_unlocked') === 'true') return true;
+    if (document.cookie.includes('nc_site_unlocked=true')) return true;
+    return false;
+}
+
+function clearSiteUnlock() {
+    localStorage.removeItem('nc_site_unlocked');
+    sessionStorage.removeItem('nc_site_unlocked');
+    document.cookie = 'nc_site_unlocked=; max-age=0; path=/';
+}
+
+// On load: Sync all storage methods and set URL param
 (function() {
-    const unlocked = localStorage.getItem('nc_site_unlocked');
-    if (unlocked === 'true') {
+    const unlocked = isSiteUnlocked();
+    if (unlocked) {
+        // Sync to all storage methods
+        saveSiteUnlock();
+        
         // Add to URL params so Streamlit can read it
         const url = new URL(window.location);
         if (!url.searchParams.has('nc_unlocked')) {
@@ -480,14 +507,6 @@ SITE_UNLOCK_JS = """
         }
     }
 })();
-
-function saveSiteUnlock() {
-    localStorage.setItem('nc_site_unlocked', 'true');
-}
-
-function clearSiteUnlock() {
-    localStorage.removeItem('nc_site_unlocked');
-}
 </script>
 """
 st.markdown(SITE_UNLOCK_JS, unsafe_allow_html=True)
@@ -539,31 +558,70 @@ if not st.session_state.site_unlocked:
 
 # params already defined above for site unlock persistence
 
-# JavaScript for persistent session storage
+# JavaScript for persistent session storage - ENHANCED
 SESSION_STORAGE_JS = """
 <script>
-// Save session to localStorage AND sync to URL
+// ENHANCED SESSION PERSISTENCE
+// Uses: localStorage + sessionStorage + cookie + URL params
+
+// Save session to ALL storage methods
 function saveSession(token, userId, email) {
+    // localStorage (persists across browser close)
     localStorage.setItem('nc_token', token);
     localStorage.setItem('nc_user_id', userId);
     localStorage.setItem('nc_email', email);
+    
+    // sessionStorage (backup for same-tab)
+    sessionStorage.setItem('nc_token', token);
+    sessionStorage.setItem('nc_user_id', userId);
+    sessionStorage.setItem('nc_email', email);
+    
+    // Cookie (7 day persistence, survives everything)
+    document.cookie = `nc_token=${token}; max-age=604800; path=/; SameSite=Lax`;
+    document.cookie = `nc_user_id=${userId}; max-age=604800; path=/; SameSite=Lax`;
+    document.cookie = `nc_email=${email}; max-age=604800; path=/; SameSite=Lax`;
 }
 
-// Get session from localStorage
+// Get session from ANY available source
 function getSession() {
-    return {
-        token: localStorage.getItem('nc_token'),
-        userId: localStorage.getItem('nc_user_id'),
-        email: localStorage.getItem('nc_email')
-    };
+    // Priority: localStorage > sessionStorage > cookie
+    let token = localStorage.getItem('nc_token') || sessionStorage.getItem('nc_token');
+    let userId = localStorage.getItem('nc_user_id') || sessionStorage.getItem('nc_user_id');
+    let email = localStorage.getItem('nc_email') || sessionStorage.getItem('nc_email');
+    
+    // Fallback to cookies if not in storage
+    if (!token) {
+        const cookies = document.cookie.split(';').reduce((acc, c) => {
+            const [k, v] = c.trim().split('=');
+            acc[k] = v;
+            return acc;
+        }, {});
+        token = cookies['nc_token'];
+        userId = cookies['nc_user_id'];
+        email = cookies['nc_email'];
+    }
+    
+    return { token, userId, email };
 }
 
-// Clear session from localStorage AND URL
+// Clear session from ALL storage
 function clearSession() {
+    // localStorage
     localStorage.removeItem('nc_token');
     localStorage.removeItem('nc_user_id');
     localStorage.removeItem('nc_email');
-    // Clear from URL too
+    
+    // sessionStorage
+    sessionStorage.removeItem('nc_token');
+    sessionStorage.removeItem('nc_user_id');
+    sessionStorage.removeItem('nc_email');
+    
+    // Cookies
+    document.cookie = 'nc_token=; max-age=0; path=/';
+    document.cookie = 'nc_user_id=; max-age=0; path=/';
+    document.cookie = 'nc_email=; max-age=0; path=/';
+    
+    // Clear from URL
     const url = new URL(window.location);
     url.searchParams.delete('nc_token');
     url.searchParams.delete('nc_user_id');
@@ -571,17 +629,20 @@ function clearSession() {
     window.history.replaceState({}, '', url);
 }
 
-// On page load, restore session from localStorage to URL params
+// On page load: Restore session to URL params for Streamlit
 (function restoreSession() {
     const session = getSession();
     const url = new URL(window.location);
     
     // If we have a stored session but it's not in URL, add it
     if (session.token && session.userId && !url.searchParams.has('nc_token')) {
+        // Re-save to ensure all storage methods are synced
+        saveSession(session.token, session.userId, session.email || '');
+        
+        // Add to URL for Streamlit
         url.searchParams.set('nc_token', session.token);
         url.searchParams.set('nc_user_id', session.userId);
         url.searchParams.set('nc_email', session.email || '');
-        // Reload with params so Streamlit can read them
         window.location.replace(url.toString());
     }
 })();
