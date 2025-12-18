@@ -11,6 +11,7 @@ import streamlit as st
 import os
 import re
 import base64
+import json  # Needed for Jupyter notebook parsing
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -402,6 +403,40 @@ async function captureScreen() {
 
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "neural2024")  # Change this or set env var
 
+# JavaScript for persistent site unlock
+SITE_UNLOCK_JS = """
+<script>
+// Check if site is unlocked in localStorage
+(function() {
+    const unlocked = localStorage.getItem('nc_site_unlocked');
+    if (unlocked === 'true') {
+        // Add to URL params so Streamlit can read it
+        const url = new URL(window.location);
+        if (!url.searchParams.has('nc_unlocked')) {
+            url.searchParams.set('nc_unlocked', 'true');
+            window.location.replace(url.toString());
+        }
+    }
+})();
+
+function saveSiteUnlock() {
+    localStorage.setItem('nc_site_unlocked', 'true');
+}
+
+function clearSiteUnlock() {
+    localStorage.removeItem('nc_site_unlocked');
+}
+</script>
+"""
+st.markdown(SITE_UNLOCK_JS, unsafe_allow_html=True)
+
+# Define params early - needed for site unlock persistence
+params = st.query_params
+
+# Check URL params for stored unlock status
+if params.get("nc_unlocked") == "true":
+    st.session_state.site_unlocked = True
+
 # Check if user has passed site gate
 if "site_unlocked" not in st.session_state:
     st.session_state.site_unlocked = False
@@ -427,6 +462,8 @@ if not st.session_state.site_unlocked:
         if st.button("🔓 Unlock", use_container_width=True, key="site_unlock_btn"):
             if site_pass == SITE_PASSWORD:
                 st.session_state.site_unlocked = True
+                # Save to localStorage
+                st.markdown('<script>saveSiteUnlock();</script>', unsafe_allow_html=True)
                 st.success("✅ Access granted!")
                 st.rerun()
             else:
@@ -438,7 +475,7 @@ if not st.session_state.site_unlocked:
 # AUTHENTICATION WITH PERSISTENT SESSIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-params = st.query_params
+# params already defined above for site unlock persistence
 
 # JavaScript for persistent session storage
 SESSION_STORAGE_JS = """
@@ -813,7 +850,7 @@ with col1:
                                 a = m.get("agent_name", "")
                                 cls = "strategist" if "Strategist" in a else "executor" if "Executor" in a else "sage" if "Sage" in a else ""
                                 st.markdown(f'<span class="agent-badge agent-{cls}">{a}</span>', unsafe_allow_html=True)
-                                st.markdown(m["content"][:1500] + ("..." if len(m["content"]) > 1500 else ""))
+                                st.markdown(m["content"])  # FULL content, no truncation
                                 st.divider()
         else:
             st.info("✨ Start a conversation...")
@@ -836,7 +873,7 @@ with col1:
                         from PyPDF2 import PdfReader
                         uploaded.seek(0)
                         file_text = "\n".join([p.extract_text() or "" for p in PdfReader(uploaded).pages])
-                        user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text[:15000]}\n```"
+                        user_input += f"\n\n[FILE: {uploaded.name}]\n```\n{file_text}\n```"
                     
                     elif uploaded.type and uploaded.type.startswith("image/"):
                         # Encode image as base64 so AI can SEE it
@@ -900,7 +937,7 @@ with col1:
                             user_input += f"\n\n[EXCEL: {uploaded.name}]\n"
                             user_input += f"Columns: {list(df.columns)}\n"
                             user_input += f"Rows: {len(df)}\n"
-                            user_input += f"```\n{df.head(50).to_string()[:8000]}\n```"
+                            user_input += f"```\n{df.to_string()}\n```"
                         except Exception as ee:
                             user_input += f"\n\n[EXCEL: {uploaded.name} - Could not parse: {str(ee)[:50]}]"
                     
@@ -913,7 +950,7 @@ with col1:
                             user_input += f"\n\n[CSV: {uploaded.name}]\n"
                             user_input += f"Columns: {list(df.columns)}\n"
                             user_input += f"Rows: {len(df)}\n"
-                            user_input += f"```\n{df.head(50).to_string()[:8000]}\n```"
+                            user_input += f"```\n{df.to_string()}\n```"
                         except Exception as ce:
                             user_input += f"\n\n[CSV: {uploaded.name} - Could not parse: {str(ce)[:50]}]"
                     
@@ -924,7 +961,7 @@ with col1:
                             uploaded.seek(0)
                             doc = Document(uploaded)
                             doc_text = "\n".join([p.text for p in doc.paragraphs])
-                            user_input += f"\n\n[WORD: {uploaded.name}]\n```\n{doc_text[:15000]}\n```"
+                            user_input += f"\n\n[WORD: {uploaded.name}]\n```\n{doc_text}\n```"
                         except Exception as we:
                             user_input += f"\n\n[WORD: {uploaded.name} - Could not parse: {str(we)[:50]}]"
                     
@@ -941,7 +978,7 @@ with col1:
                                     if hasattr(shape, "text"):
                                         slide_text += shape.text + "\n"
                                 slides_text.append(slide_text)
-                            user_input += f"\n\n[POWERPOINT: {uploaded.name}]\n```\n{chr(10).join(slides_text)[:10000]}\n```"
+                            user_input += f"\n\n[POWERPOINT: {uploaded.name}]\n```\n{chr(10).join(slides_text)}\n```"
                         except Exception as pe:
                             user_input += f"\n\n[POWERPOINT: {uploaded.name} - Could not parse: {str(pe)[:50]}]"
                     
@@ -956,7 +993,7 @@ with col1:
                                     cells.append("```python\n" + "".join(cell.get('source', [])) + "\n```")
                                 elif cell.get('cell_type') == 'markdown':
                                     cells.append("".join(cell.get('source', [])))
-                            user_input += f"\n\n[JUPYTER: {uploaded.name}]\n" + "\n\n".join(cells)[:12000]
+                            user_input += f"\n\n[JUPYTER: {uploaded.name}]\n" + "\n\n".join(cells)
                         except Exception as je:
                             user_input += f"\n\n[JUPYTER: {uploaded.name} - Could not parse: {str(je)[:50]}]"
                     
@@ -982,10 +1019,8 @@ with col1:
                         }
                         lang = lang_map.get(file_ext, '')
                         
-                        # Use larger limit for files (15K chars)
-                        user_input += f"\n\n[FILE: {uploaded.name}]\n```{lang}\n{file_text[:15000]}\n```"
-                        if len(file_text) > 15000:
-                            user_input += f"\n(truncated - full file is {len(file_text):,} chars)"
+                        # NO LIMIT - AI sees complete files!
+                        user_input += f"\n\n[FILE: {uploaded.name}]\n```{lang}\n{file_text}\n```"
                             
                 except Exception as e:
                     user_input += f"\n\n[FILE ERROR: {uploaded.name} - {str(e)}]"
@@ -1049,7 +1084,7 @@ with col1:
                 for agent, content, avatar in intermediate_responses:
                     cls = "strategist" if "Strategist" in agent else "executor" if "Executor" in agent else "sage" if "Sage" in agent else ""
                     st.markdown(f'<span class="agent-badge agent-{cls}">{agent}</span>', unsafe_allow_html=True)
-                    st.markdown(content[:2000] + ("..." if len(content) > 2000 else ""))
+                    st.markdown(content)  # FULL response, no truncation
                     st.divider()
         
         # Display final answer prominently

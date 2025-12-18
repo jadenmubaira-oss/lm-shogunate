@@ -1697,11 +1697,11 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         elif cmd_type == "read_url":
             yield ("System", f"🌐 Reading URL: {prompt[:50]}...", "system")
             content = read_url(prompt)
-            context.append({"role": "user", "content": f"[URL CONTENT]:\n{content[:10000]}"})
+            context.append({"role": "user", "content": f"[URL CONTENT]:\n{content}"})
         elif cmd_type == "browse":
             yield ("System", f"🌐 Browsing with automation: {prompt[:50]}...", "system")
             content = browse_website(prompt)
-            context.append({"role": "user", "content": f"[BROWSER CONTENT]:\n{content[:10000]}"})
+            context.append({"role": "user", "content": f"[BROWSER CONTENT]:\n{content}"})
         elif cmd_type == "screenshot":
             yield ("System", f"📸 Capturing screenshot: {prompt[:50]}...", "system")
             success, img_data = take_screenshot(prompt)
@@ -1710,7 +1710,7 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         elif cmd_type == "github":
             yield ("System", f"📂 Reading GitHub: {prompt[:50]}...", "system")
             content = read_github(prompt)
-            context.append({"role": "user", "content": f"[GITHUB CONTENT]:\n{content[:10000]}"})
+            context.append({"role": "user", "content": f"[GITHUB CONTENT]:\n{content}"})
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # PHASE 5: DEBATE MODE (if triggered)
