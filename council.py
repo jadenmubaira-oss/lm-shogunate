@@ -198,6 +198,11 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
                 json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cleaned}, 
                 timeout=120)
             
+            # DEBUG LOGGING - helps diagnose API failures
+            print(f"[call_anthropic] Model: {model} | Status: {response.status_code}")
+            if response.status_code != 200:
+                print(f"[call_anthropic ERROR] {response.text[:500]}")
+            
             if response.status_code == 200:
                 data = response.json()
                 content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
@@ -278,6 +283,11 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
             response = requests.post(url, headers=headers, 
                 json={"messages": api_messages, "max_completion_tokens": min(max_tokens, 32000)}, 
                 timeout=120)
+            
+            # DEBUG LOGGING - helps diagnose API failures
+            print(f"[call_openai] Model: {model} | Status: {response.status_code}")
+            if response.status_code != 200:
+                print(f"[call_openai ERROR] {response.text[:500]}")
             
             if response.status_code == 200:
                 data = response.json()
