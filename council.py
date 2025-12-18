@@ -2196,8 +2196,16 @@ If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
 Synthesize the FINAL answer. Fix issues. Make it PERFECT."""
         
         verdict, _ = call_agent("Emperor", [{"role": "user", "content": emperor_input}], 6000)
-        save_message(session_id, "assistant", verdict, AGENTS["Emperor"]["name"])
-        yield (AGENTS["Emperor"]["name"], verdict, "emperor")
+        
+        # CRITICAL: Check if Emperor returned an error - fallback to solution
+        if not verdict or "⚠️" in verdict or "Exception:" in verdict:
+            yield ("System", "⚠️ Emperor error - using Executor solution", "system")
+            verdict = solution
+            save_message(session_id, "assistant", verdict, f"{AGENTS['Executor']['name']} (Final)")
+            yield (f"{AGENTS['Executor']['name']} (Fallback)", verdict, "executor")
+        else:
+            save_message(session_id, "assistant", verdict, AGENTS["Emperor"]["name"])
+            yield (AGENTS["Emperor"]["name"], verdict, "emperor")
     
     # Process commands from final answer
     for cmd_type, prompt in process_ai_commands(verdict):
