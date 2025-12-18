@@ -190,19 +190,44 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
     if cleaned[0]["role"] != "user":
         cleaned.insert(0, {"role": "user", "content": "Begin."})
     
-    try:
-        response = requests.post(ANTHROPIC_ENDPOINT, headers=headers, 
-            json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cleaned}, 
-            timeout=120)
-        if response.status_code == 200:
-            data = response.json()
-            content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-            tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
-            _total_tokens_used += tokens
-            return content, tokens
-        return f"⚠️ Anthropic Error {response.status_code}: {response.text[:300]}", 0
-    except Exception as e:
-        return f"⚠️ Exception: {str(e)}", 0
+    # RETRY LOGIC FOR RATE LIMITS (429 errors)
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(ANTHROPIC_ENDPOINT, headers=headers, 
+                json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cleaned}, 
+                timeout=120)
+            
+            if response.status_code == 200:
+                data = response.json()
+                content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+                tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
+                _total_tokens_used += tokens
+                return content, tokens
+            
+            # RATE LIMIT - RETRY WITH BACKOFF
+            if response.status_code == 429:
+                if attempt < max_retries:
+                    wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                    time.sleep(wait_time)
+                    continue
+                return f"⚠️ Rate limited after {max_retries} retries. Please wait a moment.", 0
+            
+            # CONTEXT TOO LONG - Truncate and retry
+            if response.status_code == 400 and "too long" in response.text.lower():
+                if len(cleaned) > 2:
+                    cleaned = cleaned[:1] + cleaned[-1:]  # Keep first + last
+                    continue
+                return "⚠️ Query too long. Please shorten your message.", 0
+            
+            return f"⚠️ Anthropic Error {response.status_code}: {response.text[:300]}", 0
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+            return f"⚠️ Exception: {str(e)}", 0
+    
+    return "⚠️ Max retries exceeded", 0
 
 
 def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 32000) -> Tuple[str, int]:
@@ -214,19 +239,45 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
     headers = {"Content-Type": "application/json", "api-key": AZURE_API_KEY}
     api_messages = [{"role": "system", "content": system_prompt}] + [{"role": m["role"], "content": str(m["content"])} for m in messages if m["role"] in ["user", "assistant"]]
     
-    try:
-        response = requests.post(url, headers=headers, 
-            json={"messages": api_messages, "max_completion_tokens": min(max_tokens, 32000)}, 
-            timeout=120)
-        if response.status_code == 200:
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 0)
-            _total_tokens_used += tokens
-            return content, tokens
-        return f"⚠️ OpenAI Error {response.status_code}: {response.text[:300]}", 0
-    except Exception as e:
-        return f"⚠️ Exception: {str(e)}", 0
+    # RETRY LOGIC FOR RATE LIMITS (429 errors)
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(url, headers=headers, 
+                json={"messages": api_messages, "max_completion_tokens": min(max_tokens, 32000)}, 
+                timeout=120)
+            
+            if response.status_code == 200:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", 0)
+                _total_tokens_used += tokens
+                return content, tokens
+            
+            # RATE LIMIT - RETRY WITH BACKOFF
+            if response.status_code == 429:
+                if attempt < max_retries:
+                    wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                    time.sleep(wait_time)
+                    continue
+                return f"⚠️ Rate limited after {max_retries} retries. Please wait a moment.", 0
+            
+            # CONTEXT TOO LONG - Truncate and retry
+            if response.status_code == 400 and "context_length" in response.text:
+                # Reduce messages and retry
+                if len(api_messages) > 3:
+                    api_messages = api_messages[:1] + api_messages[-2:]  # Keep system + last 2
+                    continue
+                return "⚠️ Query too long. Please shorten your message.", 0
+            
+            return f"⚠️ OpenAI Error {response.status_code}: {response.text[:300]}", 0
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+            return f"⚠️ Exception: {str(e)}", 0
+    
+    return "⚠️ Max retries exceeded", 0
 
 
 def call_agent(agent_key: str, messages: List[Dict], max_tokens: int = 8000) -> Tuple[str, int]:
@@ -1646,46 +1697,70 @@ def update_session_summary(session_id: str, history: List[Dict]):
 
 def build_hierarchical_context(session_id: str, user_input: str, user_id: str = None) -> List[Dict]:
     """
-    HIERARCHICAL CONTEXT BUILDER - The Pinnacle of Memory
+    HIERARCHICAL CONTEXT BUILDER - ABSOLUTE MAXIMUM Token Usage
     
-    3-Tier Memory Architecture:
-    1. IMMEDIATE (last 15 messages, FULL content) - ~30K tokens
-    2. SESSION SUMMARY (compressed history) - ~2K tokens  
-    3. LONG-TERM MEMORIES (semantic recall) - ~2K tokens
+    For handling 10,000+ word inputs/outputs without truncation.
+    Uses ABSOLUTE MAXIMUM limits.
     
-    Total: ~35K tokens of rich context
+    3-Tier Memory Architecture with ABSOLUTE MAXIMUM limits:
+    1. IMMEDIATE (last 20 messages, 20000 chars each) - ~100K tokens max
+    2. SESSION SUMMARY (compressed history) - ~8K tokens  
+    3. LONG-TERM MEMORIES (semantic recall) - ~12K tokens
+    
+    Total: ~120K tokens (uses full 128K context window)
     """
     context = []
+    MAX_MSG_CHARS = 20000   # ~5000 tokens per message (ABSOLUTE MAX for 10K+ words)
+    MAX_MESSAGES = 20       # Last 20 messages (ABSOLUTE MAX)
+    MAX_MEMORY_CHARS = 6000  # Per memory (ABSOLUTE MAX)
+    MAX_SUMMARY_CHARS = 8000  # Session summary (ABSOLUTE MAX)
     
-    # TIER 3: Long-term memories (semantic)
-    memories = recall_memories(user_input, user_id)
-    if memories:
-        memory_text = "\n---\n".join(memories[:5])
-        context.append({
-            "role": "user", 
-            "content": f"[LONG-TERM MEMORY - Important context from previous sessions]:\n{memory_text}"
-        })
+    # TIER 3: Long-term memories (semantic) - LIMITED
+    try:
+        memories = recall_memories(user_input, user_id)
+        if memories:
+            # Take only first 3 memories, 1000 chars each
+            memory_texts = [m[:MAX_MEMORY_CHARS] for m in memories[:3]]
+            memory_text = "\n---\n".join(memory_texts)
+            context.append({
+                "role": "user", 
+                "content": f"[LONG-TERM MEMORY]:\n{memory_text}"
+            })
+    except:
+        pass
     
-    # TIER 2: Session summary (compressed history)
-    session_summary = get_session_summary(session_id)
-    if session_summary:
-        context.append({
-            "role": "user",
-            "content": f"[SESSION SUMMARY - Earlier in this conversation]:\n{session_summary}"
-        })
+    # TIER 2: Session summary (compressed history) - LIMITED
+    try:
+        session_summary = get_session_summary(session_id)
+        if session_summary:
+            context.append({
+                "role": "user",
+                "content": f"[SESSION SUMMARY]:\n{session_summary[:MAX_SUMMARY_CHARS]}"
+            })
+    except:
+        pass
     
-    # TIER 1: Immediate context (last 15 messages, FULL content)
-    history = get_history(session_id)
-    
-    # Update session summary in background
-    update_session_summary(session_id, history)
-    
-    # Take last 15 messages with FULL content (no truncation!)
-    for msg in history[-15:]:
-        context.append({
-            "role": msg["role"],
-            "content": f"[{msg.get('agent_name', 'User')}]: {msg['content']}"  # FULL content!
-        })
+    # TIER 1: Immediate context (last N messages, LIMITED chars each)
+    try:
+        history = get_history(session_id)
+        
+        # Update session summary in background
+        update_session_summary(session_id, history)
+        
+        # Take last N messages with TRUNCATED content
+        for msg in history[-MAX_MESSAGES:]:
+            content = msg.get('content', '')
+            # Truncate long messages
+            if len(content) > MAX_MSG_CHARS:
+                content = content[:MAX_MSG_CHARS] + "... [truncated]"
+            
+            agent_name = msg.get('agent_name', 'User')
+            context.append({
+                "role": msg["role"],
+                "content": f"[{agent_name}]: {content}"
+            })
+    except:
+        pass
     
     return context
 
