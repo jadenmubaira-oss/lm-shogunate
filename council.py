@@ -201,6 +201,9 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
             if response.status_code == 200:
                 data = response.json()
                 content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+                # CRITICAL: Check for empty response
+                if not content or not content.strip():
+                    return "⚠️ Empty response from Anthropic API", 0
                 tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
                 _total_tokens_used += tokens
                 return content, tokens
@@ -249,7 +252,13 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
             
             if response.status_code == 200:
                 data = response.json()
-                content = data["choices"][0]["message"]["content"]
+                # SAFE CHECK: Verify choices array exists and has items
+                choices = data.get("choices", [])
+                if not choices:
+                    return "⚠️ Empty response from API", 0
+                content = choices[0].get("message", {}).get("content", "")
+                if not content:
+                    return "⚠️ No content in API response", 0
                 tokens = data.get("usage", {}).get("total_tokens", 0)
                 _total_tokens_used += tokens
                 return content, tokens
@@ -351,6 +360,9 @@ def call_anthropic_with_vision(model: str, system_prompt: str, messages: List[Di
         if response.status_code == 200:
             data = response.json()
             content = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+            # CRITICAL: Check for empty response
+            if not content or not content.strip():
+                return "⚠️ Empty response from Vision API", 0
             tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
             _total_tokens_used += tokens
             return content, tokens
@@ -1844,6 +1856,14 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
     if is_simple_query(user_input):
         yield ("System", "⚡ Fast response...", "system")
         answer, _ = call_agent("Strategist", context, 2000)
+        
+        # CRITICAL: Check if response is an error
+        if not answer or "⚠️" in answer or "Exception:" in answer:
+            yield ("System", "⚠️ Strategist error - retrying with Executor", "system")
+            answer, _ = call_agent("Executor", context, 4000)
+            if not answer or "⚠️" in answer:
+                answer = "I apologize, but I'm experiencing technical difficulties. Please try again."
+        
         save_message(session_id, "assistant", answer, AGENTS["Strategist"]["name"])
         yield (AGENTS["Strategist"]["name"], answer, "strategist")
         
@@ -1883,6 +1903,12 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
         plan, _ = call_agent_with_vision("Strategist", context, screenshot_b64, 4000)
     else:
         plan, _ = call_agent("Strategist", context, 4000)
+    
+    # CRITICAL: Check if Strategist returned an error
+    if not plan or "⚠️" in plan or "Exception:" in plan:
+        yield ("System", "⚠️ Strategist error - using fallback analysis", "system")
+        # Fallback: Create a basic plan based on user input
+        plan = f"I'll analyze your request and provide a solution. Query: {user_input[:500]}"
     
     save_message(session_id, "assistant", plan, AGENTS["Strategist"]["name"])
     context.append({"role": "assistant", "content": f"[STRATEGIST ANALYSIS]:\n{plan}"})
@@ -1926,28 +1952,58 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
     if use_debate:
         yield ("System", "💭 DEBATE MODE: Agents will challenge each other...", "system")
         
+        # Helper function to detect error responses
+        def is_error_response(text: str) -> bool:
+            if not text:
+                return True
+            error_markers = ["⚠️", "Exception:", "Error:", "error:", "list index out of range", 
+                           "Rate limited", "too long", "Max retries", "API key not configured"]
+            return any(marker in text for marker in error_markers)
+        
         # Round 1: Executor proposes
         debate_context = context.copy()
         debate_context.append({"role": "user", "content": f"[DEBATE MODE] Propose your solution. Be specific. The Sage will challenge you."})
         
         proposal, _ = call_agent("Executor", debate_context, 6000)
-        yield (f"{AGENTS['Executor']['name']} (Proposal)", proposal, "executor")
-        save_message(session_id, "assistant", proposal, f"{AGENTS['Executor']['name']} (Proposal)")
         
-        # Round 2: Sage challenges
-        debate_context.append({"role": "assistant", "content": f"[EXECUTOR PROPOSAL]:\n{proposal}"})
-        debate_context.append({"role": "user", "content": "[DEBATE MODE] Challenge this proposal. What's wrong? What's a better alternative?"})
-        
-        challenge, _ = call_agent("Sage", debate_context, 4000)
-        yield (f"{AGENTS['Sage']['name']} (Challenge)", challenge, "sage")
-        save_message(session_id, "assistant", challenge, f"{AGENTS['Sage']['name']} (Challenge)")
-        
-        # Round 3: Executor responds to challenge
-        debate_context.append({"role": "assistant", "content": f"[SAGE CHALLENGE]:\n{challenge}"})
-        debate_context.append({"role": "user", "content": "[DEBATE MODE] Respond to the Sage's challenge. Defend or improve your proposal."})
-        
-        response, _ = call_agent("Executor", debate_context, 6000)
-        yield (f"{AGENTS['Executor']['name']} (Response)", response, "executor")
+        # If Executor returned an error, skip debate and use direct mode
+        if is_error_response(proposal):
+            yield ("System", "⚠️ Executor error - switching to direct mode", "system")
+            use_debate = False
+            solution = proposal
+            reasoning = "Error occurred, skipping debate"
+        else:
+            yield (f"{AGENTS['Executor']['name']} (Proposal)", proposal, "executor")
+            save_message(session_id, "assistant", proposal, f"{AGENTS['Executor']['name']} (Proposal)")
+            
+            # Round 2: Sage challenges
+            debate_context.append({"role": "assistant", "content": f"[EXECUTOR PROPOSAL]:\n{proposal}"})
+            debate_context.append({"role": "user", "content": "[DEBATE MODE] Challenge this proposal. What's wrong? What's a better alternative?"})
+            
+            challenge, _ = call_agent("Sage", debate_context, 4000)
+            
+            # If Sage returned an error, skip further debate and use proposal as-is
+            if is_error_response(challenge):
+                yield ("System", "⚠️ Sage error - using Executor proposal directly", "system")
+                solution = proposal
+                reasoning = "Sage error: using Executor proposal"
+            else:
+                yield (f"{AGENTS['Sage']['name']} (Challenge)", challenge, "sage")
+                save_message(session_id, "assistant", challenge, f"{AGENTS['Sage']['name']} (Challenge)")
+                
+                # Round 3: Executor responds to challenge
+                debate_context.append({"role": "assistant", "content": f"[SAGE CHALLENGE]:\n{challenge}"})
+                debate_context.append({"role": "user", "content": "[DEBATE MODE] Respond to the Sage's challenge. Defend or improve your proposal."})
+                
+                response, _ = call_agent("Executor", debate_context, 6000)
+                
+                # If response is an error, use proposal
+                if is_error_response(response):
+                    yield ("System", "⚠️ Executor response error - using proposal", "system")
+                    solution = proposal
+                    reasoning = challenge
+                else:
+                    yield (f"{AGENTS['Executor']['name']} (Response)", response, "executor")
         save_message(session_id, "assistant", response, f"{AGENTS['Executor']['name']} (Response)")
         
         # Use final response as solution
@@ -1969,6 +2025,21 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
             
             solution, _ = executor_future.result()
             reasoning, _ = sage_future.result()
+        
+        # CRITICAL: Check if either result is an error
+        def is_error(text):
+            if not text:
+                return True
+            markers = ["⚠️", "Exception:", "Error:", "list index", "Rate limited", "Max retries"]
+            return any(m in str(text) for m in markers)
+        
+        if is_error(solution):
+            yield ("System", f"⚠️ Executor error - falling back to Strategist", "system")
+            solution = plan  # Use Strategist plan as fallback
+        
+        if is_error(reasoning):
+            yield ("System", f"⚠️ Sage error - skipping critique", "system")
+            reasoning = "Critique unavailable"
         
         save_message(session_id, "assistant", solution, AGENTS["Executor"]["name"])
         save_message(session_id, "assistant", reasoning, AGENTS["Sage"]["name"])
@@ -2037,8 +2108,14 @@ FIX ALL ISSUES. Output the COMPLETE, CORRECTED solution.
 The Sage will review again. Make it perfect this time."""
         
         context.append({"role": "user", "content": f"[FIX ROUND {round_num}]:\n{fix_prompt}"})
-        solution, _ = call_agent("Executor", context, 8000)
+        new_solution, _ = call_agent("Executor", context, 8000)
         
+        # CRITICAL: Check if Executor returned an error
+        if not new_solution or "⚠️" in new_solution or "Exception:" in new_solution:
+            yield ("System", f"⚠️ Executor error in refinement - using previous solution", "system")
+            break  # Exit loop, keep previous solution
+        
+        solution = new_solution
         save_message(session_id, "assistant", solution, f"{AGENTS['Executor']['name']} (R{round_num})")
         context.append({"role": "assistant", "content": f"[EXECUTOR R{round_num}]:\n{solution}"})
         yield (f"{AGENTS['Executor']['name']} (Round {round_num})", solution, "executor")
@@ -2057,8 +2134,15 @@ Review this solution:
 If good, say "APPROVED" or "LGTM". If not, specify what's still wrong."""
         
         context.append({"role": "user", "content": f"[REVIEW ROUND {round_num}]:\n{review_prompt}"})
-        reasoning, _ = call_agent("Sage", context, 3000)
+        new_reasoning, _ = call_agent("Sage", context, 3000)
         
+        # CRITICAL: Check if Sage returned an error
+        if not new_reasoning or "⚠️" in new_reasoning or "Exception:" in new_reasoning:
+            yield ("System", f"⚠️ Sage error in refinement - proceeding with current solution", "system")
+            reasoning = "APPROVED (Sage error - auto-approved)"
+            break  # Exit loop
+        
+        reasoning = new_reasoning
         save_message(session_id, "assistant", reasoning, f"{AGENTS['Sage']['name']} (R{round_num})")
         context.append({"role": "assistant", "content": f"[SAGE R{round_num}]:\n{reasoning}"})
         yield (f"{AGENTS['Sage']['name']} (Round {round_num})", reasoning, "sage")
