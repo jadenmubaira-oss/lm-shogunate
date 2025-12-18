@@ -50,6 +50,68 @@ def render_message_with_images(content: str):
                     pass
 
 
+def smart_display_content(content: str, max_preview: int = 500, is_user: bool = False):
+    """
+    SMART DISPLAY: Collapse large content to prevent screen flooding.
+    - Shows preview for user messages with files
+    - Collapses code blocks
+    - Handles long responses gracefully
+    """
+    if not content:
+        return
+    
+    # Detect if content has embedded files/code
+    has_file = "[FILE:" in content or "[EXCEL:" in content or "[CSV:" in content or "[WORD:" in content
+    has_code = "```" in content and len(content) > 2000
+    
+    # For USER messages with files - show clean summary
+    if is_user and has_file:
+        # Extract just the query part (before file content)
+        query_part = content.split("[FILE:")[0].split("[EXCEL:")[0].split("[CSV:")[0].split("[WORD:")[0].strip()
+        
+        # Count files
+        file_count = content.count("[FILE:") + content.count("[EXCEL:") + content.count("[CSV:") + content.count("[WORD:") + content.count("[JUPYTER:") + content.count("[POWERPOINT:")
+        
+        # Show clean preview
+        st.markdown(query_part[:max_preview] + ("..." if len(query_part) > max_preview else ""))
+        st.caption(f"📎 {file_count} file(s) attached")
+        
+        # Collapsible file details
+        with st.expander("📂 View attached file content", expanded=False):
+            st.markdown(content)
+        return
+    
+    # For ASSISTANT messages with very long code blocks
+    if has_code and len(content) > 3000:
+        # Split into text and code parts
+        parts = content.split("```")
+        
+        # Show text preview
+        preview_text = parts[0][:max_preview]
+        if len(parts[0]) > max_preview:
+            preview_text += "..."
+        st.markdown(preview_text)
+        
+        # Show code in expander
+        if len(parts) >= 3:
+            code_content = parts[1]
+            lang = code_content.split("\n")[0] if "\n" in code_content else ""
+            code = "\n".join(code_content.split("\n")[1:]) if "\n" in code_content else code_content
+            
+            with st.expander(f"📜 View code ({len(code)} chars)", expanded=True):
+                st.code(code, language=lang if lang else "text")
+            
+            # Show any remaining text
+            if len(parts) > 2:
+                remaining = "".join(parts[2:])[:500]
+                if remaining.strip():
+                    st.markdown(remaining)
+        return
+    
+    # For normal content - just render with images
+    render_message_with_images(content)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # STUNNING CSS - NEON PINK/SUNSET AESTHETIC
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -813,7 +875,7 @@ with col1:
                 # User messages always shown
                 if role == "user":
                     with st.chat_message("user", avatar="👤"):
-                        render_message_with_images(msg["content"])
+                        smart_display_content(msg["content"], is_user=True)  # Smart display for files
                     i += 1
                     continue
                 
@@ -1026,7 +1088,7 @@ with col1:
                     user_input += f"\n\n[FILE ERROR: {uploaded.name} - {str(e)}]"
         
         with st.chat_message("user", avatar="👤"):
-            st.markdown(user_input[:3000] + ("..." if len(user_input) > 3000 else ""))
+            smart_display_content(user_input, is_user=True)  # Smart display collapses files
             # Show image thumbnails if any
             if uploaded_images_b64:
                 st.caption(f"📷 {len(uploaded_images_b64)} image(s) attached")
@@ -1084,7 +1146,7 @@ with col1:
                 for agent, content, avatar in intermediate_responses:
                     cls = "strategist" if "Strategist" in agent else "executor" if "Executor" in agent else "sage" if "Sage" in agent else ""
                     st.markdown(f'<span class="agent-badge agent-{cls}">{agent}</span>', unsafe_allow_html=True)
-                    st.markdown(content)  # FULL response, no truncation
+                    smart_display_content(content)  # Smart display for long responses
                     st.divider()
         
         # Display final answer prominently

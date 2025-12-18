@@ -167,7 +167,7 @@ THEMES = {
 # API CALLERS
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 
-def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 8192) -> Tuple[str, int]:
+def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 16384) -> Tuple[str, int]:
     global _total_tokens_used
     if not AZURE_API_KEY:
         return "⚠️ Azure API key not configured", 0
@@ -192,7 +192,7 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
     
     try:
         response = requests.post(ANTHROPIC_ENDPOINT, headers=headers, 
-            json={"model": model, "max_tokens": min(max_tokens, 8192), "system": system_prompt, "messages": cleaned}, 
+            json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cleaned}, 
             timeout=120)
         if response.status_code == 200:
             data = response.json()
@@ -205,7 +205,7 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
         return f"⚠️ Exception: {str(e)}", 0
 
 
-def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 16000) -> Tuple[str, int]:
+def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens: int = 32000) -> Tuple[str, int]:
     global _total_tokens_used
     if not AZURE_API_KEY:
         return "⚠️ Azure API key not configured", 0
@@ -216,7 +216,7 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
     
     try:
         response = requests.post(url, headers=headers, 
-            json={"messages": api_messages, "max_completion_tokens": min(max_tokens, 16000)}, 
+            json={"messages": api_messages, "max_completion_tokens": min(max_tokens, 32000)}, 
             timeout=120)
         if response.status_code == 200:
             data = response.json()
