@@ -206,6 +206,34 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
                     return "⚠️ Empty response from Anthropic API", 0
                 tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
                 _total_tokens_used += tokens
+                
+                # AUTO-CONTINUE: If response hit max_tokens, request continuation
+                stop_reason = data.get("stop_reason", "")
+                if stop_reason == "max_tokens" and len(content) > 100:
+                    # Response was cut off - auto-continue up to 6 times
+                    full_content = content
+                    cont_messages = cleaned.copy()
+                    for cont_attempt in range(6):  # Max 6 continuations
+                        cont_messages.append({"role": "assistant", "content": full_content})
+                        cont_messages.append({"role": "user", "content": "Continue from where you left off. Do NOT repeat what you already said."})
+                        try:
+                            cont_response = requests.post(ANTHROPIC_ENDPOINT, headers=headers,
+                                json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cont_messages},
+                                timeout=120)
+                            if cont_response.status_code == 200:
+                                cont_data = cont_response.json()
+                                cont_content = "".join(b.get("text", "") for b in cont_data.get("content", []) if b.get("type") == "text")
+                                cont_tokens = cont_data.get("usage", {}).get("input_tokens", 0) + cont_data.get("usage", {}).get("output_tokens", 0)
+                                _total_tokens_used += cont_tokens
+                                tokens += cont_tokens
+                                full_content += "\n" + cont_content
+                                # Check if this continuation was also truncated
+                                if cont_data.get("stop_reason") != "max_tokens":
+                                    break  # Response complete
+                        except:
+                            break  # Stop on error
+                    return full_content, tokens
+                
                 return content, tokens
             
             # RATE LIMIT - RETRY WITH BACKOFF
@@ -261,6 +289,37 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
                     return "⚠️ No content in API response", 0
                 tokens = data.get("usage", {}).get("total_tokens", 0)
                 _total_tokens_used += tokens
+                
+                # AUTO-CONTINUE: If response was truncated, request continuation
+                finish_reason = choices[0].get("finish_reason", "")
+                if finish_reason == "length" and len(content) > 100:
+                    # Response was cut off - auto-continue up to 6 times
+                    full_content = content
+                    for cont_attempt in range(6):  # Max 6 continuations
+                        cont_messages = api_messages + [
+                            {"role": "assistant", "content": full_content},
+                            {"role": "user", "content": "Continue from where you left off. Do NOT repeat what you already said."}
+                        ]
+                        try:
+                            cont_response = requests.post(url, headers=headers,
+                                json={"messages": cont_messages, "max_completion_tokens": min(max_tokens, 32000)},
+                                timeout=120)
+                            if cont_response.status_code == 200:
+                                cont_data = cont_response.json()
+                                cont_choices = cont_data.get("choices", [])
+                                if cont_choices:
+                                    cont_content = cont_choices[0].get("message", {}).get("content", "")
+                                    cont_tokens = cont_data.get("usage", {}).get("total_tokens", 0)
+                                    _total_tokens_used += cont_tokens
+                                    tokens += cont_tokens
+                                    full_content += "\n" + cont_content
+                                    # Check if this continuation was also truncated
+                                    if cont_choices[0].get("finish_reason") != "length":
+                                        break  # Response complete
+                        except:
+                            break  # Stop on error
+                    return full_content, tokens
+                
                 return content, tokens
             
             # RATE LIMIT - RETRY WITH BACKOFF
