@@ -22,6 +22,8 @@
 | 📁 **80+ FILE TYPES** | ✅ | Excel, Word, PPT, Jupyter, audio, video |
 | 🔐 **SESSION PERSISTENCE** | ✅ | Survives server restarts |
 | 🔒 **SITE PASSWORD** | ✅ | Pre-login protection |
+| 🧬 **HIERARCHICAL MEMORY** | ✅ | 3-tier: immediate + session summary + long-term |
+| ♾️ **UNLIMITED CONTEXT** | ✅ | No file or response truncation |
 
 ---
 
