@@ -2023,8 +2023,16 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
             executor_future = pool.submit(call_agent, "Executor", context, 6000)  # Reduced from 8000
             sage_future = pool.submit(call_agent, "Sage", context, 2000)  # Reduced from 4000
             
-            solution, _ = executor_future.result()
-            reasoning, _ = sage_future.result()
+            # CRITICAL: Wrap .result() in try/except - threads can crash
+            try:
+                solution, _ = executor_future.result(timeout=180)
+            except Exception as e:
+                solution = f"⚠️ Executor thread error: {str(e)[:100]}"
+            
+            try:
+                reasoning, _ = sage_future.result(timeout=180)
+            except Exception as e:
+                reasoning = f"⚠️ Sage thread error: {str(e)[:100]}"
         
         # CRITICAL: Check if either result is an error
         def is_error(text):

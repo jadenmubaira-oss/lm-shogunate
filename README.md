@@ -20,10 +20,12 @@
 | 🌐 **WEB AUTOMATION** | ✅ | Browse, screenshot, scrape any site |
 | 📂 **GITHUB BROWSING** | ✅ | Read repos, files, issues |
 | 📁 **80+ FILE TYPES** | ✅ | Excel, Word, PPT, Jupyter, audio, video |
-| 🔐 **SESSION PERSISTENCE** | ✅ | Survives server restarts |
+| 🔐 **SESSION PERSISTENCE** | ✅ | Survives server restarts + tab switches |
 | 🔒 **SITE PASSWORD** | ✅ | Pre-login protection |
 | 🧬 **HIERARCHICAL MEMORY** | ✅ | 3-tier: immediate + session summary + long-term |
 | ♾️ **UNLIMITED CONTEXT** | ✅ | No file or response truncation |
+| 🛡️ **14-LAYER ERROR HANDLING** | ✅ | Every API call protected with fallbacks |
+| ⏱️ **CONCURRENT TIMEOUTS** | ✅ | 180s timeout on all parallel executions |
 
 ---
 
@@ -34,19 +36,19 @@ Query Input + Screenshot + Files
     ↓
 📊 CLASSIFY (code/creative/research/reasoning)
     ↓
-🎯 STRATEGIST (WITH VISION)
+🎯 STRATEGIST (WITH VISION) → Error? Fallback plan
     ↓
 💭 DEBATE MODE? (500+ chars AND complex)
     ↓
-⚔️ EXECUTOR + 📿 SAGE (parallel)
+⚔️ EXECUTOR + 📿 SAGE (parallel) → Error? Auto-fallback
     ↓
 🖥️ CODE EXECUTION (sandboxed)
     ↓
 🌐 WEB AUTOMATION (if needed)
     ↓
-🔄 REFINEMENT (max 3 rounds, sage-approval based)
+🔄 REFINEMENT (max 3 rounds) → Error? Break loop
     ↓
-⚡ SMART SKIP (if approved) or 👑 EMPEROR
+⚡ SMART SKIP (if approved) or 👑 EMPEROR → Error? Use Executor
 ```
 
 ---
@@ -104,13 +106,17 @@ Query Input + Screenshot + Files
 
 ---
 
-## 🔐 Security
+## 🔐 Security & Robustness
 
 - Site password gate before login
-- Session tokens in server-side only
-- Sandboxed code execution
-- No persistent file system access
+- Session tokens with localStorage + cookie + URL persistence
+- Tab visibility listener for session restoration
+- Sandboxed code execution with timeouts
+- 14-layer error handling throughout pipeline
+- Concurrent execution protection with 180s timeouts
+- Automatic fallbacks on all API failures
 
 ---
 
 **DEITY STATUS ACHIEVED** 🏆👑🧠
+

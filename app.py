@@ -646,6 +646,22 @@ function clearSession() {
         window.location.replace(url.toString());
     }
 })();
+
+// TAB PERSISTENCE: Restore session when user returns to tab
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+        const session = getSession();
+        const url = new URL(window.location);
+        
+        // If session exists but not in URL, restore it
+        if (session.token && session.userId && !url.searchParams.has('nc_token')) {
+            url.searchParams.set('nc_token', session.token);
+            url.searchParams.set('nc_user_id', session.userId);
+            url.searchParams.set('nc_email', session.email || '');
+            window.location.replace(url.toString());
+        }
+    }
+});
 </script>
 """
 
@@ -941,7 +957,7 @@ with col1:
                     continue
                 
                 # Check if this is a final answer
-                is_final = any(x in str(agent_name) for x in ["Emperor", "Sage-Approved", "(Final)"])
+                is_final = any(x in str(agent_name) for x in ["Emperor", "Sage-Approved", "(Final)", "(Fallback)"])
                 
                 if is_final:
                     # Final answer - show prominently
@@ -961,7 +977,7 @@ with col1:
                     while i < len(history):
                         m = history[i]
                         a = m.get("agent_name", "")
-                        if m["role"] == "user" or any(x in str(a) for x in ["Emperor", "Sage-Approved", "(Final)"]):
+                        if m["role"] == "user" or any(x in str(a) for x in ["Emperor", "Sage-Approved", "(Final)", "(Fallback)"]):
                             break
                         intermediate.append(m)
                         i += 1
@@ -1180,8 +1196,8 @@ with col1:
                     elif msg_type == "video":
                         st.video(content)
                     else:
-                        # Check if this is the final answer (Emperor or Sage-Approved)
-                        is_final = "Emperor" in agent or "Sage-Approved" in agent or "(Final)" in agent
+                        # Check if this is the final answer (Emperor or Sage-Approved or Fallback)
+                        is_final = any(x in agent for x in ["Emperor", "Sage-Approved", "(Final)", "(Fallback)"])
                         
                         if is_final:
                             final_answer = content
