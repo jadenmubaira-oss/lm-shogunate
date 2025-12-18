@@ -41,12 +41,80 @@ OPENAI_ENDPOINT = "https://polyprophet-resource.cognitiveservices.azure.com/open
 
 _total_tokens_used = 0
 
+# FILE CACHE - Stores uploaded files separately to avoid resending every message
+# Structure: {session_id: [{name: str, content: str, timestamp: float}, ...]}
+_file_cache: Dict[str, List[Dict]] = {}
+MAX_CACHED_FILES = 10  # Max files to keep per session
+FILES_TO_SEND_FULL = 3  # Always send last N files in full context
+
 def get_tokens_used() -> int:
     return _total_tokens_used
 
 def reset_tokens():
     global _total_tokens_used
     _total_tokens_used = 0
+
+def cache_files(session_id: str, files: List[Dict[str, str]]):
+    """Cache uploaded files for a session. Called when user uploads files."""
+    if session_id not in _file_cache:
+        _file_cache[session_id] = []
+    
+    for f in files:
+        file_name = f.get("name", "unnamed")
+        file_content = f.get("content", "")
+        file_timestamp = datetime.now(timezone.utc).timestamp()
+        
+        # CRITICAL: Replace existing file with same name (don't create duplicate)
+        existing_idx = None
+        for idx, cached in enumerate(_file_cache[session_id]):
+            if cached["name"].lower() == file_name.lower():
+                existing_idx = idx
+                break
+        
+        if existing_idx is not None:
+            # Update existing file
+            _file_cache[session_id][existing_idx] = {
+                "name": file_name,
+                "content": file_content,
+                "timestamp": file_timestamp
+            }
+        else:
+            # Add new file
+            _file_cache[session_id].append({
+                "name": file_name,
+                "content": file_content,
+                "timestamp": file_timestamp
+            })
+    
+    # Keep only last MAX_CACHED_FILES
+    if len(_file_cache[session_id]) > MAX_CACHED_FILES:
+        _file_cache[session_id] = _file_cache[session_id][-MAX_CACHED_FILES:]
+
+def get_cached_files(session_id: str) -> List[Dict]:
+    """Get all cached files for a session."""
+    return _file_cache.get(session_id, [])
+
+def get_file_references(session_id: str) -> str:
+    """Get a summary of cached files (for context without full content)."""
+    files = _file_cache.get(session_id, [])
+    if not files:
+        return ""
+    
+    refs = ["[AVAILABLE FILES IN THIS SESSION:]"]
+    for i, f in enumerate(files):
+        size = len(f["content"])
+        refs.append(f"  {i+1}. {f['name']} ({size:,} chars)")
+    refs.append("[Use 'show file X' or reference by name to see contents]")
+    return "\n".join(refs)
+
+def get_file_by_name(session_id: str, filename: str) -> Optional[str]:
+    """Retrieve a specific cached file by name."""
+    files = _file_cache.get(session_id, [])
+    for f in files:
+        if filename.lower() in f["name"].lower():
+            return f"[FILE: {f['name']}]\n```\n{f['content']}\n```"
+    return None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 # THE COUNCIL OF 4 - TRUE AGENTIC PROMPTS
@@ -190,6 +258,82 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
     if cleaned[0]["role"] != "user":
         cleaned.insert(0, {"role": "user", "content": "Begin."})
     
+    # SMART FILE-AWARE TRUNCATION
+    # Strategy: ALWAYS preserve the LAST user message (which contains their files)
+    # Aggressively summarize older messages, only truncate files as absolute last resort
+    MAX_CHARS = 150000  # ~50k tokens, safe margin under 200k limit
+    total_chars = len(system_prompt) + sum(len(m["content"]) for m in cleaned)
+    truncation_warning = None
+    
+    if total_chars > MAX_CHARS:
+        # STRATEGY 1: Summarize OLD messages (not the last user message)
+        # Keep last 2 messages (current exchange), compress the rest
+        if len(cleaned) > 2:
+            old_messages = cleaned[:-2]
+            current_messages = cleaned[-2:]
+            
+            # Compress old messages to brief summaries
+            compressed = []
+            for msg in old_messages:
+                content = msg["content"]
+                # If it's a long message, create a brief summary
+                if len(content) > 500:
+                    # Extract key info: first 200 chars + any code block headers
+                    summary = content[:200]
+                    if "[FILE:" in content:
+                        # Count files mentioned
+                        file_count = content.count("[FILE:")
+                        summary += f"\n[...{file_count} file(s) previously attached...]"
+                    elif "```" in content:
+                        summary += "\n[...code block(s) omitted...]"
+                    else:
+                        summary += "\n[...truncated for context limit...]"
+                    msg["content"] = summary
+                compressed.append(msg)
+            
+            cleaned = compressed + current_messages
+            total_chars = len(system_prompt) + sum(len(m["content"]) for m in cleaned)
+        
+        # STRATEGY 2: If STILL too long, the current message has massive files
+        # Truncate each file embedded in the message, but keep the structure
+        if total_chars > MAX_CHARS and len(cleaned) >= 1:
+            last_msg = cleaned[-1]
+            if "[FILE:" in last_msg["content"] and len(last_msg["content"]) > 100000:
+                # Split by file markers and truncate each
+                import re
+                parts = re.split(r'(\[FILE:[^\]]+\])', last_msg["content"])
+                truncated_parts = []
+                for i, part in enumerate(parts):
+                    if part.startswith("[FILE:"):
+                        truncated_parts.append(part)  # Keep file header
+                    elif "```" in part and len(part) > 30000:
+                        # Truncate code content within file
+                        code_start = part.find("```")
+                        code_end = part.rfind("```")
+                        if code_start != -1 and code_end > code_start:
+                            before_code = part[:code_start+3]
+                            after_code = part[code_end:]
+                            middle = part[code_start+3:code_end]
+                            # Keep first/last 10k chars of code
+                            if len(middle) > 25000:
+                                middle = middle[:12000] + "\n\n... [FILE TRUNCATED: " + str((len(middle)-24000)//1000) + "k chars omitted] ...\n\n" + middle[-12000:]
+                            truncated_parts.append(before_code + middle + after_code)
+                        else:
+                            truncated_parts.append(part[:30000] + "\n[TRUNCATED]")
+                    else:
+                        truncated_parts.append(part)
+                
+                last_msg["content"] = "".join(truncated_parts)
+                truncation_warning = "⚠️ Some file contents were truncated due to context limits. Core structure preserved."
+                total_chars = len(system_prompt) + sum(len(m["content"]) for m in cleaned)
+        
+        # STRATEGY 3: Absolute last resort - hard truncate
+        if total_chars > MAX_CHARS:
+            excess = total_chars - MAX_CHARS
+            cleaned[-1]["content"] = cleaned[-1]["content"][:-(excess + 1000)]
+            cleaned[-1]["content"] += "\n\n[HARD TRUNCATED - Please upload fewer/smaller files]"
+            truncation_warning = "⚠️ Content was truncated. Consider uploading fewer files or using smaller files."
+    
     # RETRY LOGIC FOR RATE LIMITS (429 errors)
     max_retries = 3
     for attempt in range(max_retries + 1):
@@ -217,10 +361,12 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
                 if stop_reason == "max_tokens" and len(content) > 100:
                     # Response was cut off - auto-continue up to 6 times
                     full_content = content
-                    cont_messages = cleaned.copy()
                     for cont_attempt in range(6):  # Max 6 continuations
-                        cont_messages.append({"role": "assistant", "content": full_content})
-                        cont_messages.append({"role": "user", "content": "Continue from where you left off. Do NOT repeat what you already said."})
+                        # CRITICAL: Recreate message list fresh each iteration (not append)
+                        cont_messages = cleaned + [
+                            {"role": "assistant", "content": full_content},
+                            {"role": "user", "content": "Continue from where you left off. Do NOT repeat what you already said."}
+                        ]
                         try:
                             cont_response = requests.post(ANTHROPIC_ENDPOINT, headers=headers,
                                 json={"model": model, "max_tokens": min(max_tokens, 16384), "system": system_prompt, "messages": cont_messages},
@@ -1590,6 +1736,10 @@ def save_message(session_id: str, role: str, content: str, agent_name: str = Non
     if not session_id or not content:
         return
     
+    # CRITICAL: Skip Supabase for local/invalid session IDs
+    # Supabase expects valid UUID format - local sessions use 'local-xxx' format
+    is_local_session = session_id.startswith("local-") or len(session_id) < 32
+    
     msg_data = {
         "session_id": session_id, 
         "role": role, 
@@ -1598,20 +1748,21 @@ def save_message(session_id: str, role: str, content: str, agent_name: str = Non
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    # Retry up to 3 times
-    for attempt in range(3):
-        try:
-            db = get_supabase()
-            if db:
-                db.table("messages").insert(msg_data).execute()
-                # Success! Also try to sync any pending local messages
-                _sync_local_messages(session_id)
-                return
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(0.5 * (attempt + 1))  # Exponential backoff: 0.5s, 1s
-            else:
-                print(f"[save_message ERROR after 3 attempts] {str(e)}")
+    # Retry up to 3 times (only if NOT a local session)
+    if not is_local_session:
+        for attempt in range(3):
+            try:
+                db = get_supabase()
+                if db:
+                    db.table("messages").insert(msg_data).execute()
+                    # Success! Also try to sync any pending local messages
+                    _sync_local_messages(session_id)
+                    return
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff: 0.5s, 1s
+                else:
+                    print(f"[save_message ERROR after 3 attempts] {str(e)}")
     
     # All retries failed - save to local memory
     if session_id not in _local_messages:
@@ -1789,6 +1940,7 @@ def build_hierarchical_context(session_id: str, user_input: str, user_id: str = 
     1. IMMEDIATE (last 20 messages, 20000 chars each) - ~100K tokens max
     2. SESSION SUMMARY (compressed history) - ~8K tokens  
     3. LONG-TERM MEMORIES (semantic recall) - ~12K tokens
+    4. FILE CACHE REFERENCES - Shows available files without resending
     
     Total: ~120K tokens (uses full 128K context window)
     """
@@ -1797,6 +1949,14 @@ def build_hierarchical_context(session_id: str, user_input: str, user_id: str = 
     MAX_MESSAGES = 20       # Last 20 messages (ABSOLUTE MAX)
     MAX_MEMORY_CHARS = 6000  # Per memory (ABSOLUTE MAX)
     MAX_SUMMARY_CHARS = 8000  # Session summary (ABSOLUTE MAX)
+    
+    # TIER 4: FILE CACHE REFERENCES - Shows what files are available
+    file_refs = get_file_references(session_id)
+    if file_refs:
+        context.append({
+            "role": "user",
+            "content": file_refs
+        })
     
     # TIER 3: Long-term memories (semantic) - LIMITED
     try:
@@ -1824,15 +1984,30 @@ def build_hierarchical_context(session_id: str, user_input: str, user_id: str = 
         pass
     
     # TIER 1: Immediate context (last N messages, LIMITED chars each)
+    # SMART FILE HANDLING: Strip file contents from OLD messages, keep only in recent ones
     try:
         history = get_history(session_id)
         
         # Update session summary in background
         update_session_summary(session_id, history)
         
-        # Take last N messages with TRUNCATED content
-        for msg in history[-MAX_MESSAGES:]:
+        # Take last N messages with SMART truncation
+        recent_msgs = history[-MAX_MESSAGES:]
+        for i, msg in enumerate(recent_msgs):
             content = msg.get('content', '')
+            
+            # For OLD messages (not last 2), strip file contents to save tokens
+            is_recent = i >= len(recent_msgs) - 2
+            if not is_recent and "[FILE:" in content:
+                # Replace file contents with references
+                import re
+                # Keep file markers but remove content
+                content = re.sub(
+                    r'\[FILE: ([^\]]+)\]\n```[^`]*```',
+                    r'[FILE: \1 - content in cache, use "show file \1" to view]',
+                    content
+                )
+            
             # Truncate long messages
             if len(content) > MAX_MSG_CHARS:
                 content = content[:MAX_MSG_CHARS] + "... [truncated]"

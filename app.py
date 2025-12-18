@@ -1164,6 +1164,14 @@ with col1:
                 except Exception as e:
                     user_input += f"\n\n[FILE ERROR: {uploaded.name} - {str(e)}]"
         
+        # CACHE FILES: Store files for efficient follow-up messages
+        # Extract file info and cache it
+        import re
+        file_matches = re.findall(r'\[FILE: ([^\]]+)\]\n```[^\n]*\n([\s\S]*?)```', user_input)
+        if file_matches:
+            files_to_cache = [{"name": name, "content": content} for name, content in file_matches]
+            council.cache_files(st.session_state.session_id, files_to_cache)
+        
         with st.chat_message("user", avatar="👤"):
             smart_display_content(user_input, is_user=True)  # Smart display collapses files
             # Show image thumbnails if any
