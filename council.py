@@ -223,10 +223,11 @@ def call_anthropic(model: str, system_prompt: str, messages: List[Dict], max_tok
                             if cont_response.status_code == 200:
                                 cont_data = cont_response.json()
                                 cont_content = "".join(b.get("text", "") for b in cont_data.get("content", []) if b.get("type") == "text")
-                                cont_tokens = cont_data.get("usage", {}).get("input_tokens", 0) + cont_data.get("usage", {}).get("output_tokens", 0)
-                                _total_tokens_used += cont_tokens
-                                tokens += cont_tokens
-                                full_content += "\n" + cont_content
+                                if cont_content and cont_content.strip():  # Only add if not empty
+                                    cont_tokens = cont_data.get("usage", {}).get("input_tokens", 0) + cont_data.get("usage", {}).get("output_tokens", 0)
+                                    _total_tokens_used += cont_tokens
+                                    tokens += cont_tokens
+                                    full_content += "\n" + cont_content
                                 # Check if this continuation was also truncated
                                 if cont_data.get("stop_reason") != "max_tokens":
                                     break  # Response complete
@@ -309,10 +310,11 @@ def call_openai(model: str, system_prompt: str, messages: List[Dict], max_tokens
                                 cont_choices = cont_data.get("choices", [])
                                 if cont_choices:
                                     cont_content = cont_choices[0].get("message", {}).get("content", "")
-                                    cont_tokens = cont_data.get("usage", {}).get("total_tokens", 0)
-                                    _total_tokens_used += cont_tokens
-                                    tokens += cont_tokens
-                                    full_content += "\n" + cont_content
+                                    if cont_content and cont_content.strip():  # Only add if not empty
+                                        cont_tokens = cont_data.get("usage", {}).get("total_tokens", 0)
+                                        _total_tokens_used += cont_tokens
+                                        tokens += cont_tokens
+                                        full_content += "\n" + cont_content
                                     # Check if this continuation was also truncated
                                     if cont_choices[0].get("finish_reason") != "length":
                                         break  # Response complete
@@ -2063,12 +2065,11 @@ def run_council(theme: str, user_input: str, session_id: str, user_id: str = Non
                     reasoning = challenge
                 else:
                     yield (f"{AGENTS['Executor']['name']} (Response)", response, "executor")
-        save_message(session_id, "assistant", response, f"{AGENTS['Executor']['name']} (Response)")
-        
-        # Use final response as solution
-        solution = response
-        reasoning = challenge
-        context.append({"role": "assistant", "content": f"[DEBATE RESULT]:\n{response}"})
+                    save_message(session_id, "assistant", response, f"{AGENTS['Executor']['name']} (Response)")
+                    # Use final response as solution
+                    solution = response
+                    reasoning = challenge
+                    context.append({"role": "assistant", "content": f"[DEBATE RESULT]:\n{response}"})
     
     else:
         # ═══════════════════════════════════════════════════════════════════════════════
